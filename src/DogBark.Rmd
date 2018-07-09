@@ -1,0 +1,521 @@
+---
+title: "Dog Bark"
+author: "Ivory Blakley"
+output:
+  html_notebook:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_chunk$set(fig.path = 'results/PCA/figure')
+knitr::knit_hooks$set(inline = function(x) {
+  prettyNum(x, big.mark=",", digits=2)
+})
+```
+
+# Introduction
+
+# High level summary
+
+What do we have in the training set?
+
+```{r}
+csv = read.csv("../input/train.csv", header=T)
+head(csv)
+```
+
+The [description of the data](https://www.kaggle.com/c/freesound-audio-tagging/data) says that *"a number of Freesound audio samples were automatically annotated with labels from the AudioSet Ontology ... Then, a data validation process was carried out in which a number of participants did listen to the annotated sounds and manually assessed the presence/absence of an automatically assigned sound category".* And that 
+*"The non-verified annotations of the train set have a quality estimate of at least 65-70% in each category."*
+
+With that in mind, I would prefer to use only the manually verified data.
+```{r}
+csv = csv[csv$manually_verified == 1,]
+head(csv)
+```
+
+With that reduction, how many do we have in each category?
+```{r}
+labalTable = table(csv$label)
+```
+
+There are `r labalTable["Bark"]` sound clips labeled "Bark".
+
+Of course, all of these files are in the inputs folder.
+```{r}
+csv$filePath = paste0("../input/audio_train/", csv$fname)
+```
+
+Grab all of the sounds of dogs barking.
+```{r}
+barkSoundClips = csv$filePath[csv$label=="Bark"]
+```
+
+
+
+# Example dog bark
+
+```{r}
+library(audio)
+b1 = load.wave(barkSoundClips[1])
+sample.rate = attr(b1, "rate")
+str(b1)
+```
+
+The "rate" of `r sample.rate` means that the pressure in front of the microphone was measured `r sample.rate` times per second.  Thus, the entire clip is `r length(b1)/sample.rate` seconds long, and has `r length(b1)` values.
+
+```{r}
+play(b1)
+```
+
+```{html}
+<audio controls>
+  <source src="../input/audio_train/00e2b4cd.wav">
+</audio>
+```
+
+```{r}
+plot(b1, type="l", col="darkblue", las=1)
+start=4000
+end=20000
+abline(v=start, col="red"); abline(v=end, col="red")
+```
+
+Zoom in to the range marked by the two red lines.
+
+```{r}
+plot(start:end, b1[start:end], type="l", col="darkblue", las=1)
+abline(v=start, col="red"); abline(v=end, col="red")
+```
+
+```{r}
+play(b1[start:end])
+arf = as.numeric(b1[start:end])
+```
+
+
+
+# Fourier transform
+
+## generic
+
+### Make some waves.
+```{r}
+example.rate = 10
+x <- seq(-30, 70, by = 1/example.rate)
+wav.freq = c(0.8, 1.5, 2)
+wav.1 = sin(wav.freq[1] * x)
+wav.2 = sin(wav.freq[2] * x)
+wav.3 = rep(0, length(x))
+xmid = seq(0, 20, by = 1/example.rate)
+someMidXs = which(x>0 & x < max(x)/3)
+xmid = x[someMidXs]
+wav.3[someMidXs] = 1.6 * sin(wav.freq[3] * xmid)
+wav.sum = wav.1 + wav.2 + wav.3
+waves = list("wave1" = wav.1,
+						 "wave2" = wav.2,
+						 "wave3" = wav.3,
+						 "sum" = wav.sum)
+```
+
+```{r echo=F}
+par(mfrow=c(4,1), las=1, mar=c(0,3,0,0), oma=c(4,0,3,0))
+wav.colors = c("darkred", "darkgreen", "orange", "black")
+xaxt = c("n", "n", "n", "s") # only plot the x-axis for the 4th one
+for (w in 1:4){
+	plot(x, waves[[w]], type="l", col=wav.colors[w], xaxt=xaxt[w])
+	abline(h=0, lty=3, col="gray")
+	legend(x="topleft", legend=wav.freq[w], text.col=wav.colors[w], bty="n")
+}
+title("example waves", outer = T)
+```
+
+
+
+The Forier transfrom is beautifully explained by 3blue1brown in his video ["But what is the Fourier Transform? A visual introduction."](https://www.youtube.com/watch?v=spUNpyF58BY)  I'm using that as my bases for making the following function.
+
+### The fourier transformation
+
+```{r}
+fourtrans = function(f, g, t){
+	# f - scaler, the "winding frequency"
+	# g - a vector describing the original wave.
+	# t - a vector of times corresponding to g; g and t must be the same length
+	i = complex(imaginary=1)
+	mass = g * exp( -2 * pi * i * f * t)
+	return(sum(sum(mass))) # the double sum is diliberate.
+}
+```
+
+Do the fourier transform on the example waves.
+```{r}
+ex.freqs = seq(0.001, 1, 0.001)
+sum.ft = sapply(ex.freqs, fourtrans, g=wav.sum, t=x)
+plot(ex.freqs, abs(sum.ft), type="l", las=1, xlab="frequency (/2pi)")
+polygon(x=c(max(ex.freqs), min(ex.freqs), ex.freqs), c(0,0, abs(sum.ft)), col="gray")
+for (i in 1:length(wav.freq)){
+	abline(v=wav.freq[i]/(2*pi), col=wav.colors[i])
+	text(x=wav.freq[i]/(2*pi), y=par("usr")[4], xpd=T, pos=3, col=wav.colors[i], labels=wav.freq[i])
+}
+```
+
+I see what I want. I see peaks that corresond to my original frequencies.  But how to extract them when I don't know the values and I don't know how many there are?
+If I take every peak, I will have too many.
+
+### Pick out peaks
+
+```{r}
+getMaxima = function(vector){
+	n=length(vector)
+	left = vector[1:(n-2)]
+	main = vector[2:(n-1)]
+	right = vector [3:n]
+	indecies = which(main > left & main > right)
+	# these indeces are for 'main' which is shifted from the original by 1.
+	return(indecies + 1)
+}
+rawMaxima = getMaxima(abs(sum.ft))
+```
+
+Using the raw values and taking EVERY maximum gives me `r length(rawMaxima)` frequencies.
+
+```{r}
+plot(ex.freqs, abs(sum.ft), type="l", las=1, xlab="frequency (/2pi)")
+polygon(x=c(max(ex.freqs), min(ex.freqs), ex.freqs), c(0,0, abs(sum.ft)), col="gray")
+points(col="red", pch=16, x=ex.freqs[rawMaxima], abs(sum.ft)[rawMaxima])
+legend(legend=length(rawMaxima), x="topright", text.col="red", pch=16, col="red")
+```
+
+I could order them by their intensity (y-axis), but without knowing how many there are, I might stop with only 2 or take on several too many.  
+
+### Optimize smoothing parameter - span
+
+I know I can count on having a lot of little hills that don't matter, so I'm going take the 75th percentile and use that a bench mark for "surely small".  Any maxima that are no higher than that, can be considered noise.
+```{r}
+small = quantile(abs(sum.ft)[rawMaxima], .75)
+```
+
+```{r}
+dotColor = rep("red", length(rawMaxima))
+dotColor[abs(sum.ft)[rawMaxima] <= small] = "lightblue"
+
+plot(ex.freqs, abs(sum.ft), type="l", las=1, xlab="frequency (/2pi)")
+polygon(x=c(max(ex.freqs), min(ex.freqs), ex.freqs), c(0,0, abs(sum.ft)), col="gray")
+points(col=dotColor, pch=16, x=ex.freqs[rawMaxima], abs(sum.ft)[rawMaxima])
+abline(h=small, lty=2, col="lightblue")
+legend(legend=sum(dotColor=="red"), x="topright", text.col="red", pch=16, col="red")
+```
+
+
+Smooth out the values to remove unimportant peaks.
+```{r}
+n.panels = 8
+par(mfrow=c(n.panels,1), las=1, mar=c(0,3,0,0), oma=c(4,0,3,0))
+
+span = seq(0.01, .2, length.out = 40)
+n.span = length(span)
+drawThese = round(seq(1, n.span, length.out = n.panels))
+drawList = list()
+numMaxes = rep(NA, length(span))
+for (i in 1:n.span){
+	ft.lo = loess(abs(sum.ft) ~ ex.freqs, span=span[i])
+	smoother = predict(ft.lo, ex.freqs)
+	maxes = getMaxima(smoother)
+	numMaxes[i] = sum(smoother[maxes] > small)
+	if (i %in% drawThese) {
+		plot(ex.freqs, smoother, type="l", las=1, xlab="frequency (/2pi)", xaxt="n")
+		polygon(x=c(max(ex.freqs), min(ex.freqs), ex.freqs), c(0,0, smoother), col="gray")
+		abline(v=wav.freq/(2*pi), col=wav.colors)
+		legend(x="topright", legend=paste("span =", span[i]), bty="n")
+		dotCol = rep("red", length(maxes))
+		dotCol[smoother[maxes] <= small] = "lightblue"
+		abline(h=small, lty=2, col="lightblue")
+		points(col=dotCol, pch=16, x=ex.freqs[maxes], smoother[maxes])
+	}
+}
+title("smoothed data with different 'span'", outer = T)
+```
+
+Using a span of 0.07 is just enough to only get the main peaks.  We still get the right number of peaks even with a span of more than twice that.  As we increase the span, we see the values we would get from our maxima shift away from the accurate values (the red dots move away from the red, green and gold lines).  
+
+```{r}
+plot(span, numMaxes, type="l", las=1)
+abline(h=3, lty=2, col="red")
+```
+
+
+Now we need a rule a computer can follow that will help it come to similar conclusions about optimizing the span for a given clip.  There is probably some really good algorithm for doing that, but for now this will do:
+```{r}
+# What is the most common number of peaks (across different span parameters)
+# That must be right.  What is the lowest span that gives me that many? That must be best.
+getBestSpan = function(numMaxes, span){
+	tb = table(numMaxes)
+	tb = tb[order(tb, decreasing = T)]
+	mode = as.numeric(names(tb)[1])
+	w = which(numMaxes == mode)
+	lowSpan = span[min(w)]
+	return(lowSpan)
+}
+lowSpan = getBestSpan(numMaxes, span)
+```
+
+Based on this logic, `r lowSpan` is the optimum span parameter for this clip.
+
+```{r}
+getBestFreqs = function(ft, freqs, lowSpan){
+	ft.lo.best = loess(abs(ft) ~ freqs, span=lowSpan)
+	smoother = predict(ft.lo.best, freqs)
+	maxes = getMaxima(smoother)
+	maxes = maxes[smoother[maxes] > small]
+	freq.of.interest = freqs[maxes] * 2 * pi
+	return(freq.of.interest)
+}
+freq.of.interest = getBestFreqs(sum.ft, ex.freqs, lowSpan)
+```
+
+And based on that value for span, the frequencies of interest are:
+```{r echo=F}
+freq.of.interest
+```
+
+
+
+
+### sliding window
+
+The peak for the wave 3 frequency is shorter and wider than the other two.  This makes sense since it was only present in a small portion of the clip while the other two were present consitently.  Lets apply a sliding window approach.
+
+Define the windows.
+```{r}
+winSize = 300 # how may values wide each window is
+shift = 10 # how many values from the start of one window to the start of the next
+len = length(wav.sum) # how many total values in the clip
+winStarts = seq(1, len-winSize, shift)
+winEnds = seq(winSize, len, shift)
+nw = length(winStarts) # number of windows
+```
+
+For each window, do the fourier transform and save the value for each frequency.
+```{r}
+ex.freqs = seq(0.001, 1, 0.001)
+shiftingFT = matrix(NA, ncol = length(ex.freqs), nrow=nw,
+										dimnames=list(startTime=x[winStarts], frequency=ex.freqs))
+for (i in 1:nw){
+	win = wav.sum[winStarts[i]:winEnds[i]]
+	shiftingFT[i,] = sapply(ex.freqs, fourtrans, g=win, t=x[winStarts[i]:winEnds[i]])
+}
+shiftingFT.real = abs(shiftingFT)
+```
+
+```{r echo=F}
+# plot(ex.freqs, shiftingFT.real[10,], type="l", las=1, xlab="frequency (/2pi)")
+# polygon(x=c(max(ex.freqs), min(ex.freqs), ex.freqs), c(0,0, shiftingFT.real[10,]), col="gray")
+# for (i in 1:length(wav.freq)){
+# 	abline(v=wav.freq[i]/(2*pi), col=wav.colors[i])
+# 	text(x=wav.freq[i]/(2*pi), y=par("usr")[4], xpd=T, pos=3, col=wav.colors[i], labels=wav.freq[i])
+# }
+```
+
+
+```{r}
+midTime=round((x[winStarts]+x[winEnds])/2)
+image(x=midTime, y=ex.freqs, z=shiftingFT.real, las=1, col=heat.colors(length(shiftingFT.real)))
+```
+
+
+For the just the frequences of intersest, plot their intensity over time (across the sliding windows).
+
+```{r}
+freq.of.interest = freq.of.interest [order(freq.of.interest)] # make sure they are in the original order
+freqName = as.character(freq.of.interest / (2 * pi))
+plot(1,1, xlim=range(x), ylim=c(0,300), type="n",
+		 xlab="time", ylab="frequency intensity", las=1)
+for (i in 1:3){
+	fq = freqName[i]
+	lines(x=midTime, y=shiftingFT.real[,fq], col=wav.colors[i])
+}
+legend(x="topright", legend = round(freq.of.interest,3), col=wav.colors, lty=1)
+```
+
+
+The only thing we did to optimize the window size and shift size was... well nothing.  I looked at the picture and adjusted it.  I don't know any good rules there, except hope that the same parameters work well over most cases.
+
+Given this information, can you get the original data back?
+Because my measurements are for time intervales, and each interval must be >0, I don't have values for the begining and end.  We loose the edges of the data.
+```{r}
+rebuilt = matrix(ncol=length(freq.of.interest),
+								 nrow=length(x),
+								 dimnames=list(x=x, freq=freqName))
+for (i in 1:length(freq.of.interest)){
+	fq = freqName[i]
+	#.1 was the lowest span that I tried that didn't produce an error
+	intensityPerWindow.lo = loess(shiftingFT.real[,fq] ~ midTime, span=0.1) 
+	amplitudeFactor = predict(intensityPerWindow.lo, x)
+	rebuilt[,i] = sin(freq.of.interest[i] * x) * amplitudeFactor
+}
+```
+
+Normalize the amplitude to roughly match the original.  
+```{r}
+maxWavSum = max(wav.sum)
+intensitySumPerSec = rowSums(shiftingFT.real[,freqName])
+maxIntesitySum = max(intensitySumPerSec)
+ampFactor = maxWavSum / maxIntesitySum
+rebuilt = rebuilt * ampFactor
+```
+
+```{r echo=F}
+par(mfrow=c(4,1), las=1, mar=c(0,3,0,0), oma=c(4,0,3,0))
+xaxt = c("n", "n", "s") # only plot the x-axis for the last one
+for (w in 1:length(freq.of.interest)){
+	plot(x, rebuilt[,w], type="l", col=wav.colors[w], xaxt=xaxt[w])
+	abline(h=0, lty=3, col="gray")
+	legend(x="topleft", legend=freq.of.interest[w], text.col=wav.colors[w], bty="n")
+	abline(v=c(min(midTime), max(midTime)), col="gray", lty=2)
+}
+title("reconstructed example waves", outer = T)
+```
+
+Not perfect... but not too bad.  I think real sound data will have more cycles per unit, and I think that will mean an increase in resolution.  It would also look cleaner to have used a cutoff rather than scaling the amplitude by the intensity, but I don't think that is as true for real data as it is for this simulation.
+
+Here's the original for comparison:
+
+```{r echo=F}
+par(mfrow=c(4,1), las=1, mar=c(0,3,0,0), oma=c(4,0,3,0))
+wav.colors = c("darkred", "darkgreen", "orange", "black")
+for (w in 1:length(freq.of.interest)){
+	plot(x, waves[[w]], type="l", col=wav.colors[w], xaxt=xaxt[w])
+	abline(h=0, lty=3, col="gray")
+	legend(x="topleft", legend=wav.freq[w], text.col=wav.colors[w], bty="n")
+	abline(v=c(min(midTime), max(midTime)), col="gray", lty=2)
+}
+title("original example waves", outer = T)
+```
+
+## dog bark
+
+The original wave (g) is represented by our input data.  For t, we need to create a vector of time measurements corresponding to the values in our sound clip.
+```{r}
+getTimes = function(clipVals, rate=sample.rate){
+	#clipVals - a vector representing a sound clip.
+	# value => a vector representing the time measurements for those values
+	indecies = 1:length(clipVals)
+	return(indecies/rate)
+}
+times = getTimes(arf)
+```
+
+Based on Wikipedia's [Audio Frequency](https://en.wikipedia.org/wiki/Audio_frequency) page, sound frequencies that we can hear will be covered by a range of about 20 to 20,000 Hz.
+
+```{r}
+freq = seq(20, 20000, 100)
+```
+
+Do the Fourier Transform for the arf sample.
+```{r}
+arf.ft = sapply(freq, fourtrans, g=arf, t=times)
+arfMaxes = getMaxima(abs(arf.ft))
+```
+
+```{r}
+plot(freq, abs(arf.ft), type="l", las=1, xlab="frequency (/2pi)")
+title("Fourier transformed dog bark")
+polygon(x=c(max(freq), min(freq), freq), c(0,0, abs(arf.ft)), col="gray")
+points(col="red", pch=16, x=freq[arfMaxes], y=abs(arf.ft)[arfMaxes])
+```
+
+Which frequencies are of interest?
+```{r}
+# Earlier I was interested in a lot of plotting.  
+# Here, just put the important bits into a function, no plots
+getFreqOfInterest = function(ft, freqs,
+														 small = quantile(abs(ft)[getMaxima(abs(ft))], .75), 
+														 span = seq(0.01, .2, length.out = 40)){
+	# ft = fourier transformed data
+	# ex.freqs - frequences to iterate over
+	# small = frequencies with intensities lower than this are discarded
+	# span - a vector of spans to iterate through
+	n.span = length(span)
+	numMaxes = rep(NA, length(span))
+	for (i in 1:n.span){
+		tryCatch(expr = {
+			ft.lo = loess(abs(ft) ~ freqs, span=span[i])
+			smoother = predict(ft.lo, freqs)
+			maxes = getMaxima(smoother)
+			numMaxes[i] = sum(smoother[maxes] > small)
+		}, finally = {
+			rm(ft.lo); rm(smoother); rm(maxes)
+		})
+		
+	}
+	lowSpan = getBestSpan(numMaxes, span)
+	freq.of.interest = getBestFreqs(ft, freqs, lowSpan)
+	return(freq.of.interest)
+}
+arfFOI = getFreqOfInterest(ft=arf.ft, freqs=freq)
+arfFOI
+```
+
+```{r echo=F}
+plot(freq, abs(arf.ft), type="l", las=1, xlab="frequency (/2pi)")
+title("Fourier transformed dog bark")
+polygon(x=c(max(freq), min(freq), freq), c(0,0, abs(arf.ft)), col="gray")
+abline(v=arfFOI, col="red")
+```
+
+For each window, do the fourier transform and save the value for each frequency.
+```{r}
+getShiftingFT = function(rawSound, sampleRate, 
+												 winSize = 5000, shift = 1000,
+												 freqs=freq){
+	# rawSound - values from a sound file
+	# sampleRate - number of values per second in rawSound
+	# winSize - number of values per window
+	# shift - number of values to shift over to start the next window
+	# freq - freqencies to measure
+	len = length(rawSound) # how many total values in the clip
+	times = getTimes(rawSound, rate = sampleRate)
+	winStarts = seq(1, len-winSize, shift)
+	winEnds = seq(winSize, len, shift)
+	midTime = (times[winStarts] + times[winEnds])/2
+	nw = length(winStarts) # number of windows	
+	
+	shiftingFT = matrix(NA, ncol = length(freqs), nrow=nw,
+											dimnames=list(midTime=round(midTime,3), frequency=freqs))
+	
+	for (i in 1:nw){
+		win = rawSound[winStarts[i]:winEnds[i]]
+		shiftingFT[i,] = sapply(freqs, fourtrans, g=win, t=times[winStarts[i]:winEnds[i]])
+	}
+	shiftingFT.real = abs(shiftingFT)
+	return(shiftingFT.real)
+}
+arfMatrix = getShiftingFT(rawSound = arf, sampleRate = sample.rate)
+```
+
+
+```{r}
+midTime = as.numeric(rownames(arfMatrix))
+image(x=midTime, y=freq, z=arfMatrix, las=1, col=heat.colors(length(arfMatrix)))
+```
+
+Plotting all of the frequencies shows a lot of blank space, just show the freqencies up to 2x the highest freq of interest.
+```{r}
+# maxFreqShow = max(arfFOI) * 1.2
+# w = which(freq <= maxFreqShow)
+# plotMatrix = arfMatrix[,w]
+# image(x=midTime, y=as.numeric(colnames(plotMatrix)), z=plotMatrix, las=1, col=heat.colors(length(plotMatrix)))
+```
+
+
+
+
+
+
+
+
+
+
+
+
