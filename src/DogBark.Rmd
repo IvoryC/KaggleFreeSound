@@ -100,17 +100,20 @@ arf = as.numeric(b1[start:end])
 ## generic
 
 ### Make some waves.
+
+Lets pretend we sample some really ideal sound at a rate of 10 measurments per second.  Let x be your time line in seconds.  
+
 ```{r}
 example.rate = 10
 x <- seq(-30, 70, by = 1/example.rate)
 wav.freq = c(0.8, 1.5, 2)
-wav.1 = sin(wav.freq[1] * x)
-wav.2 = sin(wav.freq[2] * x)
+wav.1 = sin(wav.freq[1] * 2 * pi * x)
+wav.2 = sin(wav.freq[2] * 2 * pi * x)
 wav.3 = rep(0, length(x))
 xmid = seq(0, 20, by = 1/example.rate)
 someMidXs = which(x>0 & x < max(x)/3)
 xmid = x[someMidXs]
-wav.3[someMidXs] = 1.6 * sin(wav.freq[3] * xmid)
+wav.3[someMidXs] = 1.6 * sin(wav.freq[3] * 2 * pi * xmid)
 wav.sum = wav.1 + wav.2 + wav.3
 waves = list("wave1" = wav.1,
 						 "wave2" = wav.2,
@@ -137,25 +140,25 @@ The Forier transfrom is beautifully explained by 3blue1brown in his video ["But 
 ### The fourier transformation
 
 ```{r}
-fourtrans = function(f, g, t){
-	# f - scaler, the "winding frequency"
+fourtrans = function(winding, g, t){
+	# winding - scaler, the "winding frequency"
 	# g - a vector describing the original wave.
 	# t - a vector of times corresponding to g; g and t must be the same length
 	i = complex(imaginary=1)
-	mass = g * exp( -2 * pi * i * f * t)
+	mass = g * exp( -2 * pi * i * winding * t)
 	return(sum(sum(mass))) # the double sum is diliberate.
 }
 ```
 
 Do the fourier transform on the example waves.
 ```{r}
-ex.freqs = seq(0.001, 1, 0.001)
+ex.freqs = seq(0.001, 3, 0.001)
 sum.ft = sapply(ex.freqs, fourtrans, g=wav.sum, t=x)
-plot(ex.freqs, abs(sum.ft), type="l", las=1, xlab="frequency (/2pi)")
+plot(ex.freqs, abs(sum.ft), type="l", las=1, xlab="frequency")
 polygon(x=c(max(ex.freqs), min(ex.freqs), ex.freqs), c(0,0, abs(sum.ft)), col="gray")
 for (i in 1:length(wav.freq)){
-	abline(v=wav.freq[i]/(2*pi), col=wav.colors[i])
-	text(x=wav.freq[i]/(2*pi), y=par("usr")[4], xpd=T, pos=3, col=wav.colors[i], labels=wav.freq[i])
+	abline(v=wav.freq[i], col=wav.colors[i])
+	text(x=wav.freq[i], y=par("usr")[4], xpd=T, pos=3, col=wav.colors[i], labels=wav.freq[i])
 }
 ```
 
@@ -180,7 +183,7 @@ rawMaxima = getMaxima(abs(sum.ft))
 Using the raw values and taking EVERY maximum gives me `r length(rawMaxima)` frequencies.
 
 ```{r}
-plot(ex.freqs, abs(sum.ft), type="l", las=1, xlab="frequency (/2pi)")
+plot(ex.freqs, abs(sum.ft), type="l", las=1, xlab="frequency")
 polygon(x=c(max(ex.freqs), min(ex.freqs), ex.freqs), c(0,0, abs(sum.ft)), col="gray")
 points(col="red", pch=16, x=ex.freqs[rawMaxima], abs(sum.ft)[rawMaxima])
 legend(legend=length(rawMaxima), x="topright", text.col="red", pch=16, col="red")
@@ -199,7 +202,7 @@ small = quantile(abs(sum.ft)[rawMaxima], .75)
 dotColor = rep("red", length(rawMaxima))
 dotColor[abs(sum.ft)[rawMaxima] <= small] = "lightblue"
 
-plot(ex.freqs, abs(sum.ft), type="l", las=1, xlab="frequency (/2pi)")
+plot(ex.freqs, abs(sum.ft), type="l", las=1, xlab="frequency")
 polygon(x=c(max(ex.freqs), min(ex.freqs), ex.freqs), c(0,0, abs(sum.ft)), col="gray")
 points(col=dotColor, pch=16, x=ex.freqs[rawMaxima], abs(sum.ft)[rawMaxima])
 abline(h=small, lty=2, col="lightblue")
@@ -223,9 +226,9 @@ for (i in 1:n.span){
 	maxes = getMaxima(smoother)
 	numMaxes[i] = sum(smoother[maxes] > small)
 	if (i %in% drawThese) {
-		plot(ex.freqs, smoother, type="l", las=1, xlab="frequency (/2pi)", xaxt="n")
+		plot(ex.freqs, smoother, type="l", las=1, xlab="frequency", xaxt="n")
 		polygon(x=c(max(ex.freqs), min(ex.freqs), ex.freqs), c(0,0, smoother), col="gray")
-		abline(v=wav.freq/(2*pi), col=wav.colors)
+		abline(v=wav.freq, col=wav.colors)
 		legend(x="topright", legend=paste("span =", span[i]), bty="n")
 		dotCol = rep("red", length(maxes))
 		dotCol[smoother[maxes] <= small] = "lightblue"
@@ -257,6 +260,7 @@ getBestSpan = function(numMaxes, span, showplot=F){
 	if (showplot){
 		plot(span, numMaxes, type = "l", las=1)
 		abline(v=lowSpan, col="red")
+		abline(h=mode, col="blue", lty=2)
 	}
 	return(lowSpan)
 }
@@ -271,7 +275,7 @@ getBestFreqs = function(ft, freqs, lowSpan, small){
 	smoother = predict(ft.lo.best, freqs)
 	maxes = getMaxima(smoother)
 	maxes = maxes[smoother[maxes] > small]
-	freq.of.interest = freqs[maxes] * 2 * pi
+	freq.of.interest = freqs[maxes]
 	return(freq.of.interest)
 }
 freq.of.interest = getBestFreqs(sum.ft, ex.freqs, lowSpan, small=small)
@@ -291,7 +295,7 @@ The peak for the wave 3 frequency is shorter and wider than the other two.  This
 
 Define the windows.
 ```{r}
-winSize = 300 # how may values wide each window is
+winSize = 100 # how may values wide each window is
 shift = 10 # how many values from the start of one window to the start of the next
 len = length(wav.sum) # how many total values in the clip
 winStarts = seq(1, len-winSize, shift)
@@ -301,7 +305,7 @@ nw = length(winStarts) # number of windows
 
 For each window, do the fourier transform and save the value for each frequency.
 ```{r}
-ex.freqs = seq(0.001, 1, 0.001)
+#ex.freqs = seq(0.001, 1, 0.001)
 shiftingFT = matrix(NA, ncol = length(ex.freqs), nrow=nw,
 										dimnames=list(startTime=x[winStarts], frequency=ex.freqs))
 for (i in 1:nw){
@@ -311,15 +315,6 @@ for (i in 1:nw){
 shiftingFT.real = abs(shiftingFT)
 ```
 
-```{r echo=F}
-# plot(ex.freqs, shiftingFT.real[10,], type="l", las=1, xlab="frequency (/2pi)")
-# polygon(x=c(max(ex.freqs), min(ex.freqs), ex.freqs), c(0,0, shiftingFT.real[10,]), col="gray")
-# for (i in 1:length(wav.freq)){
-# 	abline(v=wav.freq[i]/(2*pi), col=wav.colors[i])
-# 	text(x=wav.freq[i]/(2*pi), y=par("usr")[4], xpd=T, pos=3, col=wav.colors[i], labels=wav.freq[i])
-# }
-```
-
 
 ```{r}
 midTime=round((x[winStarts]+x[winEnds])/2)
@@ -327,11 +322,11 @@ image(x=midTime, y=ex.freqs, z=shiftingFT.real, las=1, col=heat.colors(length(sh
 ```
 
 
-For the just the frequences of intersest, plot their intensity over time (across the sliding windows).
+For just the frequences of intersest, plot their intensity over time (across the sliding windows).
 
 ```{r}
 freq.of.interest = freq.of.interest [order(freq.of.interest)] # make sure they are in the original order
-freqName = as.character(freq.of.interest / (2 * pi))
+freqName = as.character(freq.of.interest)
 plot(1,1, xlim=range(x), ylim=c(0,300), type="n",
 		 xlab="time", ylab="frequency intensity", las=1)
 for (i in 1:3){
@@ -355,7 +350,7 @@ for (i in 1:length(freq.of.interest)){
 	#.1 was the lowest span that I tried that didn't produce an error
 	intensityPerWindow.lo = loess(shiftingFT.real[,fq] ~ midTime, span=0.1) 
 	amplitudeFactor = predict(intensityPerWindow.lo, x)
-	rebuilt[,i] = sin(freq.of.interest[i] * x) * amplitudeFactor
+	rebuilt[,i] = sin(freq.of.interest[i] * 2 * pi * x) * amplitudeFactor
 }
 ```
 
@@ -400,19 +395,20 @@ title("original example waves", outer = T)
 
 The original wave (g) is represented by our input data.  For t, we need to create a vector of time measurements corresponding to the values in our sound clip.
 ```{r}
-getTimes = function(clipVals, rate=sample.rate){
+getTimes = function(clipVals, rate=44100){
 	#clipVals - a vector representing a sound clip.
+	#rate - sample rate of the sound clip (probably 44,100)
 	# value => a vector representing the time measurements for those values
 	indecies = 1:length(clipVals)
 	return(indecies/rate)
 }
-times = getTimes(arf)
+times = getTimes(arf, rate=sample.rate)
 ```
 
 Based on Wikipedia's [Audio Frequency](https://en.wikipedia.org/wiki/Audio_frequency) page, sound frequencies that we can hear will be covered by a range of about 20 to 20,000 Hz.
 
 ```{r}
-freq = seq(20, 20000, 100)
+freq = seq(20, 20000, 10)
 ```
 
 Do the Fourier Transform for the arf sample.
@@ -422,7 +418,7 @@ arfMaxes = getMaxima(abs(arf.ft))
 ```
 
 ```{r}
-plot(freq, abs(arf.ft), type="l", las=1, xlab="frequency (/2pi)")
+plot(freq, abs(arf.ft), type="l", las=1, xlab="frequency")
 title("Fourier transformed dog bark")
 polygon(x=c(max(freq), min(freq), freq), c(0,0, abs(arf.ft)), col="gray")
 points(col="red", pch=16, x=freq[arfMaxes], y=abs(arf.ft)[arfMaxes])
@@ -443,10 +439,6 @@ getFreqOfInterest = function(ft, freqs,
 	numMaxes = rep(NA, length(span))
 	for (i in 1:n.span){
 		tryCatch(expr = {
-			# suppressWarnings(expr={ft.lo = loess(abs(ft) ~ freqs, span=span[i])})
-			# smoother = predict(ft.lo, freqs)
-			# maxes = getMaxima(smoother)
-			# numMaxes[i] = sum(smoother[maxes] > small)
 			numMaxes[i] = suppressWarnings(expr={
 				length(getBestFreqs(ft, freqs, lowSpan=span[i], small=small))
 				})
@@ -455,10 +447,7 @@ getFreqOfInterest = function(ft, freqs,
 		})
 		
 	}
-	#print(span)
-	#print(numMaxes)
 	lowSpan = getBestSpan(numMaxes, span, showplot = T)
-	#print(lowSpan)
 	freq.of.interest = getBestFreqs(ft, freqs, lowSpan, small=small)
 	return(freq.of.interest)
 }
@@ -470,7 +459,7 @@ arfFOI
 ```
 
 ```{r echo=F}
-plot(freq, abs(arf.ft), type="l", las=1, xlab="frequency (/2pi)")
+plot(freq, abs(arf.ft), type="l", las=1, xlab="frequency")
 title("Fourier transformed dog bark")
 polygon(x=c(max(freq), min(freq), freq), c(0,0, abs(arf.ft)), col="gray")
 abline(v=arfFOI, col="red")
