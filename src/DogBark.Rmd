@@ -9,7 +9,6 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-#knitr::opts_chunk$set(fig.path = 'results/PCA/figure')
 knitr::knit_hooks$set(inline = function(x) {
   prettyNum(x, big.mark=",", digits=2)
 })
@@ -249,12 +248,16 @@ Now we need a rule a computer can follow that will help it come to similar concl
 ```{r}
 # What is the most common number of peaks (across different span parameters)
 # That must be right.  What is the lowest span that gives me that many? That must be best.
-getBestSpan = function(numMaxes, span){
+getBestSpan = function(numMaxes, span, showplot=F){
 	tb = table(numMaxes)
 	tb = tb[order(tb, decreasing = T)]
 	mode = as.numeric(names(tb)[1])
 	w = which(numMaxes == mode)
 	lowSpan = span[min(w)]
+	if (showplot){
+		plot(span, numMaxes, type = "l", las=1)
+		abline(v=lowSpan, col="red")
+	}
 	return(lowSpan)
 }
 lowSpan = getBestSpan(numMaxes, span)
@@ -263,7 +266,7 @@ lowSpan = getBestSpan(numMaxes, span)
 Based on this logic, `r lowSpan` is the optimum span parameter for this clip.
 
 ```{r}
-getBestFreqs = function(ft, freqs, lowSpan){
+getBestFreqs = function(ft, freqs, lowSpan, small){
 	ft.lo.best = loess(abs(ft) ~ freqs, span=lowSpan)
 	smoother = predict(ft.lo.best, freqs)
 	maxes = getMaxima(smoother)
@@ -271,7 +274,7 @@ getBestFreqs = function(ft, freqs, lowSpan){
 	freq.of.interest = freqs[maxes] * 2 * pi
 	return(freq.of.interest)
 }
-freq.of.interest = getBestFreqs(sum.ft, ex.freqs, lowSpan)
+freq.of.interest = getBestFreqs(sum.ft, ex.freqs, lowSpan, small=small)
 ```
 
 And based on that value for span, the frequencies of interest are:
@@ -440,20 +443,29 @@ getFreqOfInterest = function(ft, freqs,
 	numMaxes = rep(NA, length(span))
 	for (i in 1:n.span){
 		tryCatch(expr = {
-			ft.lo = loess(abs(ft) ~ freqs, span=span[i])
-			smoother = predict(ft.lo, freqs)
-			maxes = getMaxima(smoother)
-			numMaxes[i] = sum(smoother[maxes] > small)
+			# suppressWarnings(expr={ft.lo = loess(abs(ft) ~ freqs, span=span[i])})
+			# smoother = predict(ft.lo, freqs)
+			# maxes = getMaxima(smoother)
+			# numMaxes[i] = sum(smoother[maxes] > small)
+			numMaxes[i] = suppressWarnings(expr={
+				length(getBestFreqs(ft, freqs, lowSpan=span[i], small=small))
+				})
 		}, finally = {
-			rm(ft.lo); rm(smoother); rm(maxes)
+			#rm(ft.lo); rm(smoother); rm(maxes)
 		})
 		
 	}
-	lowSpan = getBestSpan(numMaxes, span)
-	freq.of.interest = getBestFreqs(ft, freqs, lowSpan)
+	#print(span)
+	#print(numMaxes)
+	lowSpan = getBestSpan(numMaxes, span, showplot = T)
+	#print(lowSpan)
+	freq.of.interest = getBestFreqs(ft, freqs, lowSpan, small=small)
 	return(freq.of.interest)
 }
 arfFOI = getFreqOfInterest(ft=arf.ft, freqs=freq)
+```
+
+```{r}
 arfFOI
 ```
 
