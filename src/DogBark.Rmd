@@ -12,6 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::knit_hooks$set(inline = function(x) {
   prettyNum(x, big.mark=",", digits=2)
 })
+library("pracma")
 ```
 
 # Introduction
@@ -215,6 +216,19 @@ Smooth out the values to remove unimportant peaks.
 n.panels = 8
 par(mfrow=c(n.panels,1), las=1, mar=c(0,3,0,0), oma=c(4,0,3,0))
 
+plotSmoothMaxes = function(x, y, dotsAt, thresh){
+	#x - the x values of points to plot
+	#y - the y values of points to plot
+	#dotsAt - the indices of points to highlight (the maxes)
+	#thresh - the threshold y-value below which to ignore the maxes
+	plot(x, y, type="l", las=1, xlab="frequency", xaxt="n")
+	polygon(x=c(max(x), min(x), x), c(0,0, y), col="gray")
+	dotCol = rep("red", length(dotsAt))
+	dotCol[y[dotsAt] <= thresh] = "lightblue"
+	abline(h=thresh, lty=2, col="lightblue")
+	points(col=dotCol, pch=16, x=x[dotsAt], y[dotsAt])
+}
+
 span = seq(0.01, .2, length.out = 40)
 n.span = length(span)
 drawThese = round(seq(1, n.span, length.out = n.panels))
@@ -226,14 +240,9 @@ for (i in 1:n.span){
 	maxes = getMaxima(smoother)
 	numMaxes[i] = sum(smoother[maxes] > small)
 	if (i %in% drawThese) {
-		plot(ex.freqs, smoother, type="l", las=1, xlab="frequency", xaxt="n")
-		polygon(x=c(max(ex.freqs), min(ex.freqs), ex.freqs), c(0,0, smoother), col="gray")
+		plotSmoothMaxes(x=ex.freqs, y=smoother, dotsAt = maxes, thresh=small)
 		abline(v=wav.freq, col=wav.colors)
 		legend(x="topright", legend=paste("span =", span[i]), bty="n")
-		dotCol = rep("red", length(maxes))
-		dotCol[smoother[maxes] <= small] = "lightblue"
-		abline(h=small, lty=2, col="lightblue")
-		points(col=dotCol, pch=16, x=ex.freqs[maxes], smoother[maxes])
 	}
 }
 title("smoothed data with different 'span'", outer = T)
@@ -261,6 +270,8 @@ getBestSpan = function(numMaxes, span, showplot=F){
 		plot(span, numMaxes, type = "l", las=1)
 		abline(v=lowSpan, col="red")
 		abline(h=mode, col="blue", lty=2)
+		legend(x="topright", legend=paste("span =", lowSpan), bty="n")
+		title("Optimal Span")
 	}
 	return(lowSpan)
 }
@@ -270,12 +281,15 @@ lowSpan = getBestSpan(numMaxes, span)
 Based on this logic, `r lowSpan` is the optimum span parameter for this clip.
 
 ```{r}
-getBestFreqs = function(ft, freqs, lowSpan, small){
+getBestFreqs = function(ft, freqs, lowSpan, small, showplot=F){
 	ft.lo.best = loess(abs(ft) ~ freqs, span=lowSpan)
 	smoother = predict(ft.lo.best, freqs)
 	maxes = getMaxima(smoother)
 	maxes = maxes[smoother[maxes] > small]
 	freq.of.interest = freqs[maxes]
+	if(showplot){
+		plotSmoothMaxes(x=freqs, y=smoother, dotsAt = maxes, thresh=small)
+	}
 	return(freq.of.interest)
 }
 freq.of.interest = getBestFreqs(sum.ft, ex.freqs, lowSpan, small=small)
@@ -418,18 +432,22 @@ arfMaxes = getMaxima(abs(arf.ft))
 ```
 
 ```{r}
-plot(freq, abs(arf.ft), type="l", las=1, xlab="frequency")
-title("Fourier transformed dog bark")
-polygon(x=c(max(freq), min(freq), freq), c(0,0, abs(arf.ft)), col="gray")
-points(col="red", pch=16, x=freq[arfMaxes], y=abs(arf.ft)[arfMaxes])
+# plot(freq, abs(arf.ft), type="l", las=1, xlab="frequency")
+# title("Fourier transformed dog bark")
+# polygon(x=c(max(freq), min(freq), freq), c(0,0, abs(arf.ft)), col="gray")
+# points(col="red", pch=16, x=freq[arfMaxes], y=abs(arf.ft)[arfMaxes])
+
+plotSmoothMaxes(x=freq, y=abs(arf.ft), 
+								dotsAt = arfMaxes, 
+								thresh=quantile(abs(ft)[getMaxima(abs(ft))], .95))
 ```
 
 Which frequencies are of interest?
 ```{r}
 # Earlier I was interested in a lot of plotting.  
 # Here, just put the important bits into a function, no plots
-getFreqOfInterest = function(ft, freqs,
-														 small = quantile(abs(ft)[getMaxima(abs(ft))], .75), 
+getFreqOfInterest.old = function(ft, freqs,
+														 small = quantile(abs(ft)[getMaxima(abs(ft))], .95), 
 														 span = seq(0.01, .2, length.out = 40)){
 	# ft = fourier transformed data
 	# ex.freqs - frequences to iterate over
@@ -440,7 +458,7 @@ getFreqOfInterest = function(ft, freqs,
 	for (i in 1:n.span){
 		tryCatch(expr = {
 			numMaxes[i] = suppressWarnings(expr={
-				length(getBestFreqs(ft, freqs, lowSpan=span[i], small=small))
+				length(getBestFreqs(ft, freqs, lowSpan=span[i], small=small, showplot = T))
 				})
 		}, finally = {
 			#rm(ft.lo); rm(smoother); rm(maxes)
@@ -448,8 +466,12 @@ getFreqOfInterest = function(ft, freqs,
 		
 	}
 	lowSpan = getBestSpan(numMaxes, span, showplot = T)
-	freq.of.interest = getBestFreqs(ft, freqs, lowSpan, small=small)
+	freq.of.interest = getBestFreqs(ft, freqs, lowSpan, small=small, showplot = T)
 	return(freq.of.interest)
+}
+getFreqOfInterest <- function(ft, freqs, small=quantile(abs(ft)[getMaxima(abs(ft))], .95)){
+	inds = findpeaks(abs(ft), minpeakheight = small)
+	freq.of.interest = freqs[inds[,2]]
 }
 arfFOI = getFreqOfInterest(ft=arf.ft, freqs=freq)
 ```
@@ -503,14 +525,25 @@ image(x=midTime, y=freq, z=arfMatrix, las=1, col=heat.colors(length(arfMatrix)))
 
 Plotting all of the frequencies shows a lot of blank space, just show the freqencies up to 2x the highest freq of interest.
 ```{r}
-# maxFreqShow = max(arfFOI) * 1.2
-# w = which(freq <= maxFreqShow)
-# plotMatrix = arfMatrix[,w]
-# image(x=midTime, y=as.numeric(colnames(plotMatrix)), z=plotMatrix, las=1, col=heat.colors(length(plotMatrix)))
+maxFreqShow = max(arfFOI) * 1.2
+w = which(freq <= maxFreqShow)
+plotMatrix = arfMatrix[,w]
+image(x=midTime, y=as.numeric(colnames(plotMatrix)), z=plotMatrix, las=1, col=heat.colors(length(plotMatrix)))
 ```
 
 
-
+```{r}
+#freq.of.interest = freq.of.interest [order(freq.of.interest)] # make sure they are in the original order
+freqName = as.character(arfFOI)
+arf.col = wav.colors # they can just happen to be the same
+plot(1,1, xlim=range(midTime), ylim=c(0,max(arfMatrix)), type="n",
+		 xlab="time", ylab="frequency intensity", las=1)
+for (i in 1:3){
+	fn = freqName[i]
+	lines(x=midTime, y=arfMatrix[,fn], col=arf.col[i])
+}
+legend(x="topright", legend = round(arfFOI,3), col=arf.col, lty=1)
+```
 
 
 
