@@ -77,7 +77,7 @@ play(b1)
 
 ```{r}
 plot(b1, type="l", col="darkblue", las=1)
-start=4000
+start=1000
 end=20000
 abline(v=start, col="red"); abline(v=end, col="red")
 ```
@@ -579,28 +579,32 @@ legend(x="topright", legend = round(arfFOI,3), col=arf.col, lty=1)
 Given this information, can you get the original data back?
 Because my measurements are for time intervales, and each interval must be >0, I don't have values for the begining and end.  We loose the edges of the data.
 ```{r}
-rebuilt = matrix(ncol=length(freq.of.interest),
-								 nrow=length(x),
-								 dimnames=list(x=x, freq=freqName))
-for (i in 1:length(freq.of.interest)){
+rebuilt = matrix(ncol=length(arfFOI),
+								 nrow=length(times),
+								 dimnames=list(time=times, freq=freqName))
+for (i in 1:length(arfFOI)){
 	fq = freqName[i]
-	#.1 was the lowest span that I tried that didn't produce an error
-	intensityPerWindow.lo = loess(shiftingFT.real[,fq] ~ midTime, span=0.1) 
-	amplitudeFactor = predict(intensityPerWindow.lo, x)
-	rebuilt[,i] = sin(freq.of.interest[i] * 2 * pi * x) * amplitudeFactor
+	intensityPerWindow.lo = loess(arfMatrix[,fq] ~ midTime) 
+	amplitudeFactor = predict(intensityPerWindow.lo, times)
+	rebuilt[,i] = sin(arfFOI[i] * 2 * pi * times) * amplitudeFactor
 }
 ```
 
 Normalize the amplitude to roughly match the original.  
 ```{r}
-maxWavSum = max(wav.sum)
-intensitySumPerSec = rowSums(shiftingFT.real[,freqName])
+maxWavSum = max(arf)
+intensitySumPerSec = rowSums(arfMatrix[,freqName])
 maxIntesitySum = max(intensitySumPerSec)
 ampFactor = maxWavSum / maxIntesitySum
 rebuilt = rebuilt * ampFactor
 ```
 
+### Combine generated frequencies into a sound
 
+```{r}
+arfRebuilt = rowSums(rebuilt)
+artArt = audioSample(arfRebuilt, rate=sample.rate, bits=16)
+```
 
 
 
