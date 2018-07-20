@@ -429,7 +429,7 @@ times = getTimes(arf, rate=sample.rate)
 Based on Wikipedia's [Audio Frequency](https://en.wikipedia.org/wiki/Audio_frequency) page, sound frequencies that we can hear will be covered by a range of about 20 to 20,000 Hz.
 
 ```{r}
-freq = seq(20, 20000, 10)
+freq = seq(20, 20000, 40)
 ```
 
 Do the Fourier Transform for the arf sample.
@@ -476,12 +476,16 @@ getFreqOfInterest.old = function(ft, freqs,
 	freq.of.interest = getBestFreqs(ft, freqs, lowSpan, small=small, showplot = T)
 	return(freq.of.interest)
 }
-getPeakFreqs <- function(ft, small=quantile(abs(ft)[getMaxima(abs(ft))], .95)){
-	# inds = findpeaks(abs(ft), minpeakheight = small)
-	# freq.of.interest = freqs[inds[,2]]
-	return(findpeaks(abs(ft), minpeakheight = small))
+getPeakFreqs <- function(ft, small=NULL){
+	if (is.null(small)){
+		fracMax = max(ft)/10
+		quant = quantile(abs(ft)[getMaxima(abs(ft))], .95)
+		small = max(fracMax, quant)
+	}
+	return(findpeaks(abs(ft), minpeakheight = small, 
+									 nups = 2, ndowns = 2, minpeakdistance = 5))
 }
-freqPeaks = getPeakFreqs(ft=arf.ft)
+freqPeaks = getPeakFreqs(ft=abs(arf.ft))
 arfFOI = freq[freqPeaks[,2]]
 
 #arfFOI = getFreqOfInterest(ft=arf.ft, freqs=freq)
