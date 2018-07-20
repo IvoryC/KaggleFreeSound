@@ -2,9 +2,12 @@
 title: "Dog Bark"
 author: "Ivory Blakley"
 output:
+  html_document:
+    df_print: paged
+    toc: yes
   html_notebook:
-    toc: true
-    toc_float: true
+    toc: yes
+    toc_float: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -584,7 +587,7 @@ rebuilt = matrix(ncol=length(arfFOI),
 								 dimnames=list(time=times, freq=freqName))
 for (i in 1:length(arfFOI)){
 	fq = freqName[i]
-	intensityPerWindow.lo = loess(arfMatrix[,fq] ~ midTime) 
+	intensityPerWindow.lo = loess(c(0,arfMatrix[,fq],0) ~ c(min(times),midTime,max(times))) 
 	amplitudeFactor = predict(intensityPerWindow.lo, times)
 	rebuilt[,i] = sin(arfFOI[i] * 2 * pi * times) * amplitudeFactor
 }
@@ -603,9 +606,20 @@ rebuilt = rebuilt * ampFactor
 
 ```{r}
 arfRebuilt = rowSums(rebuilt)
-artArt = audioSample(arfRebuilt, rate=sample.rate, bits=16)
+artArf = audioSample(arfRebuilt, rate=sample.rate, bits=16)
 ```
 
+```{r}
+plot(start:end, arfRebuilt, type="l", col="darkblue", las=1)
+abline(v=start, col="red"); abline(v=end, col="red")
+play(artArf)
+```
+
+```{r}
+play(b1[start:end])
+plot(start:end, b1[start:end], type="l", col="darkblue", las=1)
+abline(v=start, col="red"); abline(v=end, col="red")
+```
 
 
 
