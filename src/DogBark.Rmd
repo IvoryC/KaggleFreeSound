@@ -21,6 +21,12 @@ library("seewave") # for timer
 
 # Introduction
 
+This is the in-the-weeds approach.  In this document I will dig into the problem and create several functions that I can save to use later in a more streamlined document.
+```{r}
+toolkitList = c()
+```
+
+
 # High level summary
 
 What do we have in the training set?
@@ -78,6 +84,7 @@ getTimes = function(clipVals, rate=44100){
 	indecies = 1:length(clipVals)
 	return(indecies/rate)
 }
+toolkitList = c(toolkitList, "getTimes")
 ```
 
 
@@ -148,6 +155,7 @@ useFindPeaks = function(vals, sample.rate=44100,
 	return(allEnv)
 }
 allEnv = useFindPeaks(vals = numB1)
+toolkitList = c(toolkitList, "useFindPeaks")
 ```
 
 Take a look at the results from findpeaks.
@@ -198,6 +206,7 @@ noLonelyTrue = function(bool, n=1, left=n, right=n, naEdges=NA){
 }
 bool = c(T,T,F,T,T,T,T,T,T,T,T,F,F,T,T,T,T)
 noLonelyTrue(bool, n=1)
+toolkitList = c(toolkitList, "noLonelyTrue")
 ```
 
 
@@ -239,6 +248,7 @@ getPeaksEdges <- function(vals, peaks, threshold, minNumBelow=20){
 
 	return(data.frame(peak=peaks, startInd=startInd, endInd=endInd))
 }
+toolkitList = c(toolkitList, "getPeaksEdges")
 
 peakEnds = getPeaksEdges(numB1, peaks=allEnv$peak, threshold=threshold)
 abline(v=getTimes(numB1)[peakEnds$startInd], col="green")
@@ -321,6 +331,7 @@ fourtrans = function(winding, g, t){
 	mass = g * exp( -2 * pi * i * winding * t)
 	return(sum(sum(mass))) # the double sum is diliberate.
 }
+toolkitList = c(toolkitList, "fourtrans")
 ```
 
 Do the fourier transform on the example waves.
@@ -351,6 +362,7 @@ getMaxima = function(vector){
 	return(indecies + 1)
 }
 rawMaxima = getMaxima(abs(sum.ft))
+toolkitList = c(toolkitList, "getMaxima")
 ```
 
 Using the raw values and taking EVERY maximum gives me `r length(rawMaxima)` frequencies.
@@ -400,6 +412,7 @@ plotSmoothMaxes = function(x, y, dotsAt, thresh){
 	abline(h=thresh, lty=2, col="lightblue")
 	points(col=dotCol, pch=16, x=x[dotsAt], y[dotsAt])
 }
+toolkitList = c(toolkitList, "plotSmoothMaxes")
 
 span = seq(0.01, .2, length.out = 40)
 n.span = length(span)
@@ -447,6 +460,7 @@ getBestSpan = function(numMaxes, span, showplot=F){
 	}
 	return(lowSpan)
 }
+toolkitList = c(toolkitList, "getBestSpan")
 lowSpan = getBestSpan(numMaxes, span)
 ```
 
@@ -652,6 +666,8 @@ getPeakFreqs <- function(ft, small=NULL){
 }
 freqPeaks = getPeakFreqs(ft=abs(arf.ft))
 arfFOI = freq[freqPeaks[,2]]
+toolkitList = c(toolkitList, "getPeakFreqs", "getFreqOfInterest.old")
+
 
 #arfFOI = getFreqOfInterest(ft=arf.ft, freqs=freq)
 ```
@@ -696,6 +712,7 @@ getShiftingFT = function(rawSound, sampleRate,
 	shiftingFT.real = abs(shiftingFT)
 	return(shiftingFT.real)
 }
+toolkitList = c(toolkitList, "getShiftingFT")
 arfMatrix = getShiftingFT(rawSound = arf, sampleRate = sample.rate)
 ```
 
@@ -796,6 +813,23 @@ abline(v=start, col="red"); abline(v=end, col="red")
 ```
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Other stuff
 
 
@@ -826,5 +860,8 @@ nextTimeLab = as.character(nextTime)
 inflatedShape = lapply(inflatedShape, function(x){x1=c(0, x, 0); names(x1)[1]="0"; names(x1)[length(x1)]=nextTimeLab; return(x1)})
 ```
 
-
-
+```{r}
+sessionInfo()
+# save my functions
+save(file="MySoundTools.RData", list = toolkitList)
+```
