@@ -635,3 +635,93 @@ abline(v=start, col="red"); abline(v=end, col="red")
 
 
 
+
+
+
+
+```{r}
+tm = timer(b1,threshold=5,msmooth=c(50,0))
+```
+
+
+Smothing by maxes.
+```{r}
+numB1 = abs(as.numeric(b1))
+names(numB1) = getTimes(numB1)
+nextTime = min(getTimes(numB1)) + max(getTimes(numB1))
+
+vals = numB1
+n = 9
+naturalFloor = rep(NA, n)
+inflatedShape = as.list(naturalFloor)
+
+plot(x=getTimes(numB1), y=numB1, type="n", col="darkblue", las=1, xlim=c(1.1, 1.3))
+for (i in 1:n){
+	vals = vals[getMaxima(vals)]
+	#tv = table(vals)
+	#tv = tv[order(tv, decreasing = T)]
+	naturalFloor[i] = min(vals)
+	inflatedShape[[i]] = vals
+	lines(x=as.numeric(names(vals)), y=vals, type="l", col=i)
+	#hist(vals, main=i, 200)
+}
+legend(x="topright", lty=1, col=1:n, legend=1:n)
+#plot(x=as.numeric(names(b1m1)), y=b1m1, type="l", col="darkblue", xlab="seconds", las=1)
+nextTimeLab = as.character(nextTime)
+inflatedShape = lapply(inflatedShape, function(x){x1=c(0, x, 0); names(x1)[1]="0"; names(x1)[length(x1)]=nextTimeLab; return(x1)})
+```
+
+
+
+Collect amplitude envelopes.
+```{r}
+plot(getTimes(numB1), numB1, type="l", col="darkblue", las=1, xlim=c(1.10, 1.25)) #, xlim=c(50000,54000)
+maxAmp = max(numB1)
+minpeakheight = 0.1 * maxAmp
+threshold = 0.01 * maxAmp
+#threshold = naturalFloor[3]
+allEnv = findpeaks(numB1, nups=5, ndowns=5, 
+									 minpeakheight = minpeakheight, 
+									 threshold = threshold, 
+									 minpeakdistance = sample.rate * .1)
+allEnv = data.frame(allEnv)
+names(allEnv) = c("height", "peak", "start", "end")
+points(allEnv[,2], allEnv[,1], col="red", pch=16)
+
+
+# to test for values in pauses, use the level 3 smooth-by-maxima values
+shape.lo = loess(inflatedShape[[3]] ~ names(inflatedShape[[3]]))
+shape3 = predict(shape.lo, getTimes(numB1))
+threshold = max(threshold, min(shape3) * 5)
+lines(getTimes(numB1), shape3, col="orange", lwd=3, lty=2)
+
+#which values are below threshold
+peak=allEnv$peak
+nrow=length(numB1)
+ncol=length(peak)
+# bt = matrix(data=numB1 < threshold, byrow = F, nrow=nrow, ncol=ncol)
+bt = matrix(data=shape3 < threshold, byrow = F, nrow=nrow, ncol=ncol)
+beforePeak = rep(1:length(numB1), length(peak)) < rep(peak, each=length(numB1))
+bp = matrix(data=beforePeak, byrow=F, nrow=nrow, ncol=ncol)
+isBefore = bt & bp
+#startInd = colSums(isBefore)
+startInd = apply(isBefore, 2, function(x){max(which(x))})
+abline(v=startInd, col="purple")
+isAfter = bt & !bp
+endInd = apply(isAfter, 2, function(x){min(which(x))})
+abline(v=endInd, col="blue")
+
+drawAt = seq(.1 * maxAmp, .9 * maxAmp, length.out = 5)
+y0 = drawAt[ (0:(nrow(allEnv)-1) %% length(drawAt)) + 1]
+segments(x0=allEnv$start, x1=allEnv$end, y0=y0, col="red")
+abline(v=allEnv$start, col="red")
+
+abline(h=minpeakheight, col="green")
+abline(h=threshold, col="pink")
+```
+
+
+
+
+
+
