@@ -15,7 +15,8 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::knit_hooks$set(inline = function(x) {
   prettyNum(x, big.mark=",", digits=2)
 })
-library("pracma")
+library("pracma") # for findpeaks
+library("seewave") # for timer
 ```
 
 # Introduction
@@ -68,14 +69,20 @@ str(b1)
 
 The "rate" of `r sample.rate` means that the pressure in front of the microphone was measured `r sample.rate` times per second.  Thus, the entire clip is `r length(b1)/sample.rate` seconds long, and has `r length(b1)` values.
 
+This means we can assign each value a time in seconds.
 ```{r}
-play(b1)
+getTimes = function(clipVals, rate=44100){
+	#clipVals - a vector representing a sound clip.
+	#rate - sample rate of the sound clip (probably 44,100)
+	# value => a vector representing the time measurements for those values
+	indecies = 1:length(clipVals)
+	return(indecies/rate)
+}
 ```
 
-```{html}
-<audio controls>
-  <source src="../input/audio_train/00e2b4cd.wav">
-</audio>
+
+```{r}
+play(b1)
 ```
 
 ```{r}
@@ -96,6 +103,168 @@ abline(v=start, col="red"); abline(v=end, col="red")
 play(b1[start:end])
 arf = as.numeric(b1[start:end])
 ```
+
+
+# Break up sound file
+
+A general bump in a sound wav view is referred to as an amplitude envelope.
+We need a way to automatically pick out these units of sound within a sound file.
+
+```{r}
+#library("seewave")
+tm = timer(b1,threshold=5,msmooth=c(50,0))
+length(tm$s)
+```
+
+From how its described, that function should be just what I need, but it found an awful lot of peaks, and I don't see an easy way to merge adjascent peaks.  
+
+So I considered another method that wasn't necissarily made for sound but it looks like it will work.
+
+We'll have to flip between index as an x-axis, and time in seconds.
+```{r}
+numB1 = abs(as.numeric(b1))
+timesB1 = getTimes(numB1)
+```
+
+Pick out amplitude envelopes using the findpeaks function.
+```{r}
+maxAmp = max(numB1)
+minpeakheight = 0.1 * maxAmp   # use for plotting later
+threshold = 0.01 * maxAmp   # use for plotting later
+
+useFindPeaks = function(vals, sample.rate=44100,
+												maxAmp = max(vals),
+												minpeakheight = 0.1 * maxAmp,
+												threshold = 0.01 * maxAmp){
+	# vals - numeric vector, the sound values.
+	
+	allEnv = findpeaks(vals, nups=5, ndowns=5, 
+										 minpeakheight = minpeakheight, 
+										 threshold = threshold, 
+										 minpeakdistance = sample.rate * .1)
+	allEnv = data.frame(allEnv)
+	names(allEnv) = c("height", "peak", "start", "end")
+	allEnv$peakTime = getTimes(numB1)[allEnv$peak]
+	return(allEnv)
+}
+allEnv = useFindPeaks(vals = numB1)
+```
+
+Take a look at the results from findpeaks.
+
+```{r}
+xlim=NULL
+plot(timesB1, numB1, type="l", col="darkblue", las=1, xlim=xlim)
+
+points(allEnv$peakTime, allEnv[,"height"], col="red", pch=16)
+abline(v=getTimes(numB1)[allEnv$start], col="green")
+abline(v=getTimes(numB1)[allEnv$end], col="red")
+
+xlim=c(1.10, 1.5)
+plot(timesB1, numB1, type="l", col="darkblue", las=1, xlim=xlim)
+points(allEnv$peakTime, allEnv[,"height"], col="red", pch=16)
+abline(v=getTimes(numB1)[allEnv$start], col="green")
+abline(v=getTimes(numB1)[allEnv$end], col="red")
+```
+
+I was able to get reasonable peaks with findpeaks, but I didn't like the start and end that was assigned to each peak.
+I want to use the peaks from findpeaks, but define the start and stop of each peak based on when the sound returns to some threshold.
+
+To do this, I want to look for continuous areas of low values.
+
+A value is only true if the surrounding n values are also true.
+```{r}
+noLonelyTrue = function(bool, n=1, left=n, right=n, naEdges=NA){
+	# bool - a vectore of boolean values
+	# n - how many values on either side must be true for an original value to still be true
+	# left, right - number of values to the left (preceeding) or right (after) that must be true
+	end = length(bool)
+	# matrices are faster than loops.  
+	# any given row in this matrix can be read as "is the original value true, how about the one before it, and before that..."
+	# the offset by one is acheived by adding a value at the end.
+	toTheLeft = matrix(data=rep(c(bool,NA),left+1)[1:(end * (left+1))], nrow=length(bool), ncol=left+1, byrow = F)
+	# same as above, but the other direction
+	toTheRight = matrix(data=rep(c(rev(bool), NA), right+1)[1:(end * (right+1))], nrow=length(bool), ncol=right+1, byrow = F)
+	
+	# true values are treated as 1 in rowSums
+	newBool = rowSums(toTheLeft)==left+1 & rev(rowSums(toTheRight))==right+1
+	
+	# the first and last n values don't have enough neighbors, by default they are NA values.
+	if (!is.na(naEdges)){
+		newBool[1:left] = naEdges
+		newBool[(length(newBool)-right+1):length(newBool)] = naEdges
+	}
+	return(newBool)
+}
+bool = c(T,T,F,T,T,T,T,T,T,T,T,F,F,T,T,T,T)
+noLonelyTrue(bool, n=1)
+```
+
+
+Now define start and stop of peask based on when there is a continuous low value.
+
+```{r}
+plot(timesB1, numB1, type="l", col="darkblue", las=1, xlim=xlim)
+points(allEnv$peakTime, allEnv[,"height"], col="red", pch=16)
+abline(h=threshold, col="pink")
+
+getPeaksEdges <- function(vals, peaks, threshold, minNumBelow=20){
+	# vals - numeric vector, the sound values.
+	# peaks - the indecies for the peaks
+	# threshold - scaler, below this value is considered quite, a pause.
+	# minNumBelow - integer, number of consecutive values below threshold to be called a pause.
+	######
+	
+	# Make a matrix where each position in the sound is a row and each peak is a column.
+	# Make a boolean matrix describing weather each position is below threshold.
+	# the signal may dip below the threshold, only consider it a pause if it stays below threshold
+	nrow=length(vals)
+	ncol=length(peaks)
+	bt1 = vals < threshold
+	bt2 = noLonelyTrue(bt1, n=minNumBelow, naEdges = F)
+	bt = matrix(data=bt2, byrow = F, nrow=nrow, ncol=ncol)
+	
+	# Make a matrix with the same layout describing weather the value (row) is before a give peak (column).
+	beforePeak = rep(1:length(vals), length(peaks)) < rep(peaks, each=length(vals))
+	bp = matrix(data=beforePeak, byrow=F, nrow=nrow, ncol=ncol)
+	
+	# Combine these to get values that are pause areas before the peak.
+	# For each column (peak) keep the true value with highest posible index, that is the peak start.
+	isBefore = bt & bp
+	startInd = apply(isBefore, 2, function(x){max(which(x))})
+	
+	# Use the mirror image of the process above to get the end for each peak.
+	isAfter = bt & !bp
+	endInd = apply(isAfter, 2, function(x){min(which(x))})
+
+	return(data.frame(peak=peaks, startInd=startInd, endInd=endInd))
+}
+
+peakEnds = getPeaksEdges(numB1, peaks=allEnv$peak, threshold=threshold)
+abline(v=getTimes(numB1)[peakEnds$startInd], col="green")
+abline(v=getTimes(numB1)[peakEnds$endInd], col="red")
+```
+
+With this method, there are some peaks that are close enough to each other that they have the same start and end postions.  I don't want to copy the same slice and mistake it for a repeating pattern, so I'm going to remove those duplicates.
+```{r}
+allEnv$start = peakEnds$startInd
+allEnv$end = peakEnds$endInd
+range = paste(allEnv$start, allEnv$endInd)
+allEnv = allEnv[!duplicated(range),]
+```
+
+
+
+```{r}
+xlim=NULL
+plot(timesB1, numB1, type="l", col="darkblue", las=1, xlim=xlim)
+points(timesB1[allEnv$peak], allEnv[,"height"], col="red", pch=16)
+abline(h=threshold, col="pink")
+abline(v=timesB1[allEnv$start], col="green")
+abline(v=timesB1[allEnv$end], col="red")
+```
+
+This gives us `r nrow(allEnv)` amplitude envelopes in this file, and most of them look reasonable.
 
 
 
@@ -419,13 +588,6 @@ title("original example waves", outer = T)
 
 The original wave (g) is represented by our input data.  For t, we need to create a vector of time measurements corresponding to the values in our sound clip.
 ```{r}
-getTimes = function(clipVals, rate=44100){
-	#clipVals - a vector representing a sound clip.
-	#rate - sample rate of the sound clip (probably 44,100)
-	# value => a vector representing the time measurements for those values
-	indecies = 1:length(clipVals)
-	return(indecies/rate)
-}
 times = getTimes(arf, rate=sample.rate)
 ```
 
@@ -631,6 +793,37 @@ play(artArf)
 play(b1[start:end])
 plot(start:end, b1[start:end], type="l", col="darkblue", las=1)
 abline(v=start, col="red"); abline(v=end, col="red")
+```
+
+
+# Other stuff
+
+
+Smothing by maxes--this is something we might explore as a way to summarize an overal shape.
+```{r echo=FALSE, include=FALSE}
+numB1 = abs(as.numeric(b1))
+names(numB1) = getTimes(numB1)
+nextTime = min(getTimes(numB1)) + max(getTimes(numB1))
+
+vals = numB1
+n = 9
+naturalFloor = rep(NA, n)
+inflatedShape = as.list(naturalFloor)
+
+plot(x=getTimes(numB1), y=numB1, type="n", col="darkblue", las=1, xlim=c(1.1, 1.3))
+for (i in 1:n){
+	vals = vals[getMaxima(vals)]
+	#tv = table(vals)
+	#tv = tv[order(tv, decreasing = T)]
+	naturalFloor[i] = min(vals)
+	inflatedShape[[i]] = vals
+	lines(x=as.numeric(names(vals)), y=vals, type="l", col=i)
+	#hist(vals, main=i, 200)
+}
+legend(x="topright", lty=1, col=1:n, legend=1:n)
+#plot(x=as.numeric(names(b1m1)), y=b1m1, type="l", col="darkblue", xlab="seconds", las=1)
+nextTimeLab = as.character(nextTime)
+inflatedShape = lapply(inflatedShape, function(x){x1=c(0, x, 0); names(x1)[1]="0"; names(x1)[length(x1)]=nextTimeLab; return(x1)})
 ```
 
 
