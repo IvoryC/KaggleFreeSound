@@ -80,8 +80,8 @@ play(b1)
 
 ```{r}
 plot(b1, type="l", col="darkblue", las=1)
-start=1000
-end=20000
+start=45000
+end=67000
 abline(v=start, col="red"); abline(v=end, col="red")
 ```
 
@@ -578,6 +578,18 @@ legend(x="topright", legend = round(arfFOI,3), col=arf.col, lty=1)
 
 
 ### Generate recovered waves
+
+Hear each frequency alone.
+```{r}
+for (i in 1:length(arfFOI)){
+	toneTime = c(times, times+max(times), times+(2*max(times)))
+	s = sin(arfFOI[i] * 2 * pi * toneTime)
+	tone = audioSample(s, rate=sample.rate, bits=16)
+	play(tone)
+	wait(2)
+}
+```
+
 
 Given this information, can you get the original data back?
 Because my measurements are for time intervales, and each interval must be >0, I don't have values for the begining and end.  We loose the edges of the data.
