@@ -1,3 +1,10 @@
 input/*
 .idea*
 .idea/*
+.Rproj.user
+.RData
+*.Rhistory
+archive/*
+*.Rproj
+.ipynb_checkpoints/
+train/*
