@@ -640,9 +640,12 @@ abline(v=start, col="red"); abline(v=end, col="red")
 
 
 ```{r}
+library("seewave")
 tm = timer(b1,threshold=5,msmooth=c(50,0))
+length(tm$s)
 ```
 
+This found `r length(tm$s)` peaks, and I don't see an easy way to merge adjascent peaks.
 
 Smothing by maxes.
 ```{r}
@@ -675,7 +678,13 @@ inflatedShape = lapply(inflatedShape, function(x){x1=c(0, x, 0); names(x1)[1]="0
 
 Collect amplitude envelopes.
 ```{r}
-plot(getTimes(numB1), numB1, type="l", col="darkblue", las=1, xlim=c(1.10, 1.25)) #, xlim=c(50000,54000)
+numB1 = abs(as.numeric(b1))
+timesB1 = getTimes(numB1)
+
+xlim=NULL
+
+plot(timesB1, numB1, type="l", col="darkblue", las=1, xlim=xlim)
+
 maxAmp = max(numB1)
 minpeakheight = 0.1 * maxAmp
 threshold = 0.01 * maxAmp
@@ -686,40 +695,95 @@ allEnv = findpeaks(numB1, nups=5, ndowns=5,
 									 minpeakdistance = sample.rate * .1)
 allEnv = data.frame(allEnv)
 names(allEnv) = c("height", "peak", "start", "end")
-points(allEnv[,2], allEnv[,1], col="red", pch=16)
+allEnv$peakTime = getTimes(numB1)[allEnv$peak]
 
+points(allEnv$peakTime, allEnv[,"height"], col="red", pch=16)
+abline(v=getTimes(numB1)[allEnv$start], col="green")
+abline(v=getTimes(numB1)[allEnv$end], col="red")
+
+xlim=c(1.10, 1.5)
+plot(timesB1, numB1, type="l", col="darkblue", las=1, xlim=xlim)
+points(allEnv$peakTime, allEnv[,"height"], col="red", pch=16)
+abline(v=getTimes(numB1)[allEnv$start], col="green")
+abline(v=getTimes(numB1)[allEnv$end], col="red")
+```
+
+I wasn't happy with the results from timer, and I didn't like the output format.
+I was able to get reasonable peaks with findpeaks, but I didn't like the start and end that was assigned to each peak.
+I want to use the peaks from findpeaks, but define the start and stop of each peak based on when the sound returns to some threshold.
+
+To do this, I want to look for continuous areas of low values.
+
+A value is only true if the surrounding n values are also true.
+```{r}
+noLonelyTrue = function(bool, n=1, left=n, right=n, naEdges=NA){
+	# bool - a vectore of boolean values
+	# n - how many values on either side must be true for an original value to still be true
+	# left, right - number of values to the left (preceeding) or right (after) that must be true
+	end = length(bool)
+	# matrices are faster than loops.  
+	# any given row in this matrix can be read as "is the original value true, how about the one before it, and before that..."
+	# the offset by one is acheived by adding a value at the end.
+	toTheLeft = matrix(data=rep(c(bool,NA),left+1)[1:(end * (left+1))], nrow=length(bool), ncol=left+1, byrow = F)
+	# same as above, but the other direction
+	toTheRight = matrix(data=rep(c(rev(bool), NA), right+1)[1:(end * (right+1))], nrow=length(bool), ncol=right+1, byrow = F)
+	
+	# true values are treated as 1 in rowSums
+	newBool = rowSums(toTheLeft)==left+1 & rev(rowSums(toTheRight))==right+1
+	
+	# the first and last n values don't have enough neighbors, by default they are NA values.
+	if (!is.na(naEdges)){
+		newBool[1:left] = naEdges
+		newBool[(length(newBool)-right+1):length(newBool)] = naEdges
+	}
+	return(newBool)
+}
+bool = c(T,T,F,T,T,T,T,T,T,T,T,F,F,T,T,T,T)
+noLonelyTrue(bool, n=1)
+```
+
+
+Now define start and stop of peask based on when there is a continuous low value.
+
+```{r}
+plot(timesB1, numB1, type="l", col="darkblue", las=1, xlim=xlim)
+points(allEnv$peakTime, allEnv[,"height"], col="red", pch=16)
+abline(h=threshold, col="pink")
 
 # to test for values in pauses, use the level 3 smooth-by-maxima values
-shape.lo = loess(inflatedShape[[3]] ~ names(inflatedShape[[3]]))
-shape3 = predict(shape.lo, getTimes(numB1))
-threshold = max(threshold, min(shape3) * 5)
-lines(getTimes(numB1), shape3, col="orange", lwd=3, lty=2)
+# shape.lo = loess(inflatedShape[[3]] ~ names(inflatedShape[[3]]))
+# shape3 = predict(shape.lo, getTimes(numB1))
+# threshold = max(threshold, min(shape3) * 5)
+# lines(getTimes(numB1), shape3, col="orange", lwd=3, lty=2)
 
 #which values are below threshold
 peak=allEnv$peak
 nrow=length(numB1)
 ncol=length(peak)
-# bt = matrix(data=numB1 < threshold, byrow = F, nrow=nrow, ncol=ncol)
-bt = matrix(data=shape3 < threshold, byrow = F, nrow=nrow, ncol=ncol)
+bt1 = numB1 < threshold
+bt2 = noLonelyTrue(bt1, n=20, naEdges = F)
+bt = matrix(data=bt2, byrow = F, nrow=nrow, ncol=ncol)
+
 beforePeak = rep(1:length(numB1), length(peak)) < rep(peak, each=length(numB1))
 bp = matrix(data=beforePeak, byrow=F, nrow=nrow, ncol=ncol)
 isBefore = bt & bp
-#startInd = colSums(isBefore)
 startInd = apply(isBefore, 2, function(x){max(which(x))})
-abline(v=startInd, col="purple")
+abline(v=getTimes(numB1)[startInd], col="green")
 isAfter = bt & !bp
 endInd = apply(isAfter, 2, function(x){min(which(x))})
-abline(v=endInd, col="blue")
+abline(v=getTimes(numB1)[endInd], col="red")
 
-drawAt = seq(.1 * maxAmp, .9 * maxAmp, length.out = 5)
-y0 = drawAt[ (0:(nrow(allEnv)-1) %% length(drawAt)) + 1]
-segments(x0=allEnv$start, x1=allEnv$end, y0=y0, col="red")
-abline(v=allEnv$start, col="red")
 
-abline(h=minpeakheight, col="green")
-abline(h=threshold, col="pink")
 ```
 
+```{r}
+xlim=NULL
+plot(timesB1, numB1, type="l", col="darkblue", las=1, xlim=xlim)
+points(allEnv$peakTime, allEnv[,"height"], col="red", pch=16)
+abline(h=threshold, col="pink")
+abline(v=getTimes(numB1)[startInd], col="green")
+abline(v=getTimes(numB1)[endInd], col="red")
+```
 
 
 
