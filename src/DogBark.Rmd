@@ -824,7 +824,7 @@ plot(timesB1[wStart:wEnd], numB1[wStart:wEnd],
 		 type="l", col="darkblue", las=1, xlab=xlabTime, ylab=ylab)
 title("Original Individual Dog Bark")
 abline(v=c(startTime,endTime), col="red")
-quickSampleStartTime = 1.15 + 0.05 * c(0:4)
+quickSampleStartTime = 1.15 + 0.03 * c(0:5)
 arrows(x0=quickSampleStartTime, y0=par("usr")[3], y1=0, col="orange")
 ```
 
@@ -834,23 +834,24 @@ arrows(x0=quickSampleStartTime, y0=par("usr")[3], y1=0, col="orange")
 Zoom in to the original dog bark and draw the artificial frequency next to it for referecne.
 ```{r}
 secPerFqInterval = 1/arfFOI
-#indexPerWave = sample.rate / arfFOI 
+names(secPerFqInterval) = arfFOI
+orderedSecPerInt = secPerFqInterval[order(secPerFqInterval)]
 
 for (st in quickSampleStartTime){
 	en = st + (3 * max(secPerFqInterval))
-	x = seq(st,en,1)/sample.rate
-	y = b1[st:en]
-	plot(x=x, y=y, col="darkblue", las=1, xlab=xlabTime, ylab=ylab)
+	xlim = c(st, en)
+	plot(x=timesB1, y=as.numeric(b1), type="o", pch='.',
+			 col="darkblue", las=1, xlab=xlabTime, ylab=ylab, xlim=xlim)
 	title(paste("dog bark sampled at", st, "seconds"))
 	abline(v=c(st,en), col="orange")
-	abline(v=(st+max(secPerFqInterval)*c(1,2))/sample.rate, col="red", lty=2)
-	for (i in 1:length(indexPerWave)){
-		segments(x0=seq(st, en, indexPerWave[i])/sample.rate, 
-						 y0=par("usr")[4], y1=par("usr")[4]*.7, 
-						 col="gray", lty=2)
-		# fq = freqName[i]
-		# x = st:en
-		# lines(x, y=sin(freq.of.interest[i] * 2 * pi * x), col=i+1)
+	abline(v=(st+max(secPerFqInterval)*c(1,2)), col="red", lty=2)
+	for (i in 1:length(orderedSecPerInt)){
+		length=par("usr")[4]*.2
+		y0=par("usr")[4]-(i*length)
+		y1=par("usr")[4]-((i-1)*length)
+		x0=seq(st, en, orderedSecPerInt[i])
+		segments(x0=x0, y0=y0, y1=y1, col="gray")
+		text(x=en, y=mean(c(y0,y1)), labels=names(orderedSecPerInt)[i], pos=4, xpd=T)
 	}
 }
 ```
