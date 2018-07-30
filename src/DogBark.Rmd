@@ -3,11 +3,10 @@ title: "Dog Bark"
 author: "Ivory Blakley"
 output:
   html_document:
-    df_print: paged
-    toc: yes
-  html_notebook:
-    toc: yes
-    toc_float: yes
+    number_sections: true
+    toc: true
+    highlight: tango
+    code_folding: hide
 ---
 
 ```{r setup, include=FALSE}
@@ -87,28 +86,39 @@ getTimes = function(clipVals, rate=44100){
 toolkitList = c(toolkitList, "getTimes")
 ```
 
+We'll have to flip between index as an x-axis, and time in seconds.
+```{r}
+numB1 = abs(as.numeric(b1))
+timesB1 = getTimes(numB1)
+```
 
 ```{r}
 play(b1)
 ```
 
 ```{r}
-plot(b1, type="l", col="darkblue", las=1)
-start=45000
-end=67000
-abline(v=start, col="red"); abline(v=end, col="red")
+wStart=45000 # an index indicating where to start the zoomed-in section
+wEnd=67000 # an index indicating where to end the zoomed-in section
+startTime = timesB1[wStart]
+endTime = timesB1[wEnd]
+ylab="amplitude (absolute value)"
+xlabTime = "time (seconds)"
+plot(x=timesB1, y=numB1, 
+		 type="l", col="darkblue", las=1, xlab=xlabTime, ylab=ylab)
+abline(v=c(startTime, endTime), col="red")
 ```
 
 Zoom in to the range marked by the two red lines.
 
 ```{r}
-plot(start:end, b1[start:end], type="l", col="darkblue", las=1)
-abline(v=start, col="red"); abline(v=end, col="red")
+plot(timesB1[wStart:wEnd], numB1[wStart:wEnd], 
+		 type="l", col="darkblue", las=1, xlab=xlabTime, ylab=ylab)
+abline(v=c(startTime, endTime), col="red")
 ```
 
 ```{r}
-play(b1[start:end])
-arf = as.numeric(b1[start:end])
+play(b1[wStart:wEnd])
+arf = numB1[wStart:wEnd]
 ```
 
 
@@ -126,12 +136,6 @@ length(tm$s)
 From how its described, that function should be just what I need, but it found an awful lot of peaks, and I don't see an easy way to merge adjascent peaks.  
 
 So I considered another method that wasn't necissarily made for sound but it looks like it will work.
-
-We'll have to flip between index as an x-axis, and time in seconds.
-```{r}
-numB1 = abs(as.numeric(b1))
-timesB1 = getTimes(numB1)
-```
 
 Pick out amplitude envelopes using the findpeaks function.
 ```{r}
@@ -162,17 +166,21 @@ Take a look at the results from findpeaks.
 
 ```{r}
 xlim=NULL
-plot(timesB1, numB1, type="l", col="darkblue", las=1, xlim=xlim)
+plot(timesB1, numB1, 
+		 type="l", col="darkblue", las=1, xlim=xlim, xlab=xlabTime, ylab=ylab)
 
 points(allEnv$peakTime, allEnv[,"height"], col="red", pch=16)
 abline(v=getTimes(numB1)[allEnv$start], col="green")
 abline(v=getTimes(numB1)[allEnv$end], col="red")
 
 xlim=c(1.10, 1.5)
-plot(timesB1, numB1, type="l", col="darkblue", las=1, xlim=xlim)
+plot(timesB1, numB1, 
+		 type="l", col="darkblue", las=1, xlim=xlim, xlab=xlabTime, ylab=ylab)
 points(allEnv$peakTime, allEnv[,"height"], col="red", pch=16)
 abline(v=getTimes(numB1)[allEnv$start], col="green")
 abline(v=getTimes(numB1)[allEnv$end], col="red")
+
+legend(x="topright", legend=c("start","end"), col=c("green","red"), lty=1, bty="n")
 ```
 
 I was able to get reasonable peaks with findpeaks, but I didn't like the start and end that was assigned to each peak.
@@ -213,10 +221,6 @@ toolkitList = c(toolkitList, "noLonelyTrue")
 Now define start and stop of peask based on when there is a continuous low value.
 
 ```{r}
-plot(timesB1, numB1, type="l", col="darkblue", las=1, xlim=xlim)
-points(allEnv$peakTime, allEnv[,"height"], col="red", pch=16)
-abline(h=threshold, col="pink")
-
 getPeaksEdges <- function(vals, peaks, threshold, minNumBelow=20){
 	# vals - numeric vector, the sound values.
 	# peaks - the indecies for the peaks
@@ -249,8 +253,12 @@ getPeaksEdges <- function(vals, peaks, threshold, minNumBelow=20){
 	return(data.frame(peak=peaks, startInd=startInd, endInd=endInd))
 }
 toolkitList = c(toolkitList, "getPeaksEdges")
-
 peakEnds = getPeaksEdges(numB1, peaks=allEnv$peak, threshold=threshold)
+
+plot(timesB1, numB1, 
+		 type="l", col="darkblue", las=1, xlim=xlim, xlab=xlabTime, ylab=ylab)
+points(allEnv$peakTime, allEnv[,"height"], col="red", pch=16)
+abline(h=threshold, col="pink")
 abline(v=getTimes(numB1)[peakEnds$startInd], col="green")
 abline(v=getTimes(numB1)[peakEnds$endInd], col="red")
 ```
@@ -602,7 +610,7 @@ title("original example waves", outer = T)
 
 The original wave (g) is represented by our input data.  For t, we need to create a vector of time measurements corresponding to the values in our sound clip.
 ```{r}
-times = getTimes(arf, rate=sample.rate)
+timesArf = getTimes(arf, rate=sample.rate)
 ```
 
 Based on Wikipedia's [Audio Frequency](https://en.wikipedia.org/wiki/Audio_frequency) page, sound frequencies that we can hear will be covered by a range of about 20 to 20,000 Hz.
@@ -613,7 +621,7 @@ freq = seq(20, 20000, 40)
 
 Do the Fourier Transform for the arf sample.
 ```{r}
-arf.ft = sapply(freq, fourtrans, g=arf, t=times)
+arf.ft = sapply(freq, fourtrans, g=arf, t=timesArf)
 arfMaxes = getMaxima(abs(arf.ft))
 ```
 
@@ -655,14 +663,14 @@ getFreqOfInterest.old = function(ft, freqs,
 	freq.of.interest = getBestFreqs(ft, freqs, lowSpan, small=small, showplot = T)
 	return(freq.of.interest)
 }
+
 getPeakFreqs <- function(ft, small=NULL){
 	if (is.null(small)){
 		fracMax = max(ft)/10
 		quant = quantile(abs(ft)[getMaxima(abs(ft))], .95)
 		small = max(fracMax, quant)
 	}
-	return(findpeaks(abs(ft), minpeakheight = small, 
-									 nups = 2, ndowns = 2, minpeakdistance = 5))
+	return(findpeaks(abs(ft), minpeakheight = small, minpeakdistance = 5))
 }
 freqPeaks = getPeakFreqs(ft=abs(arf.ft))
 arfFOI = freq[freqPeaks[,2]]
@@ -761,7 +769,7 @@ legend(x="topright", legend = round(arfFOI,3), col=arf.col, lty=1)
 Hear each frequency alone.
 ```{r}
 for (i in 1:length(arfFOI)){
-	toneTime = c(times, times+max(times), times+(2*max(times)))
+	toneTime = c(timesArf, timesArf+max(timesArf), timesArf+(2*max(timesArf)))
 	s = sin(arfFOI[i] * 2 * pi * toneTime)
 	tone = audioSample(s, rate=sample.rate, bits=16)
 	play(tone)
@@ -773,14 +781,15 @@ for (i in 1:length(arfFOI)){
 Given this information, can you get the original data back?
 Because my measurements are for time intervales, and each interval must be >0, I don't have values for the begining and end.  We loose the edges of the data.
 ```{r}
+options(scipen=999)
 rebuilt = matrix(ncol=length(arfFOI),
-								 nrow=length(times),
-								 dimnames=list(time=times, freq=freqName))
+								 nrow=length(timesArf),
+								 dimnames=list(time=timesArf, freq=freqName))
 for (i in 1:length(arfFOI)){
 	fq = freqName[i]
-	intensityPerWindow.lo = loess(c(0,arfMatrix[,fq],0) ~ c(min(times),midTime,max(times))) 
-	amplitudeFactor = predict(intensityPerWindow.lo, times)
-	rebuilt[,i] = sin(arfFOI[i] * 2 * pi * times) * amplitudeFactor
+	intensityPerWindow.lo = loess(c(0,arfMatrix[,fq],0) ~ c(min(timesArf),midTime,max(timesArf))) 
+	amplitudeFactor = predict(intensityPerWindow.lo, timesArf)
+	rebuilt[,i] = sin(arfFOI[i] * 2 * pi * timesArf) * amplitudeFactor
 }
 ```
 
@@ -795,25 +804,56 @@ rebuilt = rebuilt * ampFactor
 
 ### Combine generated frequencies into a sound
 
+The newly generated 'sound' is the combination of the component sounds we identified above.
 ```{r}
 arfRebuilt = rowSums(rebuilt)
 artArf = audioSample(arfRebuilt, rate=sample.rate, bits=16)
-```
 
-```{r}
-plot(start:end, arfRebuilt, type="l", col="darkblue", las=1)
-abline(v=start, col="red"); abline(v=end, col="red")
+plot(timesArf, arfRebuilt, 
+		 type="l", col="darkblue", las=1, xlab=xlabTime, ylab=ylab)
+title("Artificial Dog Bark")
+abline(v=c(wStart,wEnd), col="red")
 play(artArf)
 ```
 
+That neither looks nor sounds like the original .... not by a long shot.
+
 ```{r}
-play(b1[start:end])
-plot(start:end, b1[start:end], type="l", col="darkblue", las=1)
-abline(v=start, col="red"); abline(v=end, col="red")
+play(b1[wStart:wEnd])
+plot(timesB1[wStart:wEnd], numB1[wStart:wEnd], 
+		 type="l", col="darkblue", las=1, xlab=xlabTime, ylab=ylab)
+title("Original Individual Dog Bark")
+abline(v=c(startTime,endTime), col="red")
+quickSampleStartTime = 1.15 + 0.05 * c(0:4)
+arrows(x0=quickSampleStartTime, y0=par("usr")[3], y1=0, col="orange")
 ```
 
 
+### Why did the artifical bark fail ?
 
+Zoom in to the original dog bark and draw the artificial frequency next to it for referecne.
+```{r}
+secPerFqInterval = 1/arfFOI
+#indexPerWave = sample.rate / arfFOI 
+
+for (st in quickSampleStartTime){
+	en = st + (3 * max(secPerFqInterval))
+	x = seq(st,en,1)/sample.rate
+	y = b1[st:en]
+	plot(x=x, y=y, col="darkblue", las=1, xlab=xlabTime, ylab=ylab)
+	title(paste("dog bark sampled at", st, "seconds"))
+	abline(v=c(st,en), col="orange")
+	abline(v=(st+max(secPerFqInterval)*c(1,2))/sample.rate, col="red", lty=2)
+	for (i in 1:length(indexPerWave)){
+		segments(x0=seq(st, en, indexPerWave[i])/sample.rate, 
+						 y0=par("usr")[4], y1=par("usr")[4]*.7, 
+						 col="gray", lty=2)
+		# fq = freqName[i]
+		# x = st:en
+		# lines(x, y=sin(freq.of.interest[i] * 2 * pi * x), col=i+1)
+	}
+}
+```
 
 
 
