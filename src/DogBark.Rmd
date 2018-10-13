@@ -118,7 +118,7 @@ abline(v=c(startTime, endTime), col="red")
 
 ```{r}
 play(b1[wStart:wEnd])
-arf = numB1[wStart:wEnd]
+#arf = numB1[wStart:wEnd]
 ```
 
 
@@ -283,6 +283,65 @@ abline(v=timesB1[allEnv$end], col="red")
 ```
 
 This gives us `r nrow(allEnv)` amplitude envelopes in this file, and most of them look reasonable.
+
+```{r}
+allEnv = allEnv[order(allEnv$start),]
+wStart = allEnv[1,"start"]
+wEnd = allEnv[1,"end"]
+play(b1[wStart:wEnd])
+arf = numB1[wStart:wEnd]
+plot(getTimes(arf), arf,
+		 type="l", col="darkblue", las=1)
+```
+
+# Amplitude envelope shape
+
+```{r}
+Clips = as.list(1:(nrow(csv)*10)) # I estimate an average of 10 clips per sound file
+#fileDF = data.frame(file=character(), numberAmpEnvelopes=integer())
+clipData = as.list(csv$fname)
+names(clipData) = csv$fname
+#clipDF = data.frame(file=character(),clipID=character(),lengthInt=numeric(), lengthSec=numeric())
+nth = 0
+for (i in 1:nrow(csv)){
+	tryCatch( expr = {
+		# break up the sound file into clips
+		rawSound = load.wave(csv[i,"filePath"])
+		vals = abs(as.numeric(rawSound))
+		ampEnv=0
+		maxAmp1 = max(vals)
+		#minpeakheight = 0.1 * maxAmp   # use for plotting later
+		threshold1 = 0.01 * maxAmp1 
+		ampEnv = useFindPeaks(vals = vals)
+		clipEnds = getPeaksEdges(vals, peaks=ampEnv$peak, threshold=threshold1)
+		ampEnv$start = clipEnds$startInd
+		ampEnv$end = clipEnds$endInd
+		range1 = paste(ampEnv$start, allEnv$endInd)
+		ampEnv = ampEnv[!duplicated(range1),]
+		
+		# add clip id
+		ampEnv$clipID = paste0(csv[i,"fname"], "-", 1:nrow(ampEnv))
+		
+		# add the table of clips to the data list
+		clipData[[csv[i,"fname"]]] = ampEnv
+		
+		# add the clips to the list
+		n1 = nth + 1
+		n2 = nth + nrow(ampEnv)
+		names(Clips)[n1:n2] = ampEnv$clipID
+		for (j in 1:nrow(ampEnv)){
+			s = ampEnv$start[j]
+			e = ampEnv$end[j]
+			Clips[[nth+j]] = vals[s:e]
+		}
+		nth = n2
+	}, finally = {
+		print(paste("found", nrow(ampEnv), "clips in", csv$fname[i]))
+		rm(rawSound, vals, ampEnv)
+	})
+}
+```
+
 
 
 
