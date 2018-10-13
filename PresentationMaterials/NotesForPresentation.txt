@@ -1,0 +1,86 @@
+
+This is a knowledge quest, so I don't want to pipe all the files through some black box NN program, even if that does give me correct answers for all categories.
+
+
+
+General problems:
+
+How can I best interact with this data?
+One issue I've had is finding software to effectively interact with sound files.  There is professional software that would allow me to do some of what I want, like view wave forms, zoom in, play segmets, etc.  But that kind of software a) costs money and b) I don't think those would lend themselves so some of the manipulations I am trying to do for ML purposes. There is free software...where you kinda get what you paid for.  And there is R/python, which do not directly give you a fluid interface with sound.
+
+Diversity of sounds. I have developed methods that are best suited for dog-bark and meow.  I don't know yet how well that will transfer to other types of sounds.
+
+DOMAIN KNOWLEDGE!!!  Feature extraction is required before you can jump into using standard ML tools.
+
+Playing sounds in an Rmd posted on Kaggle
+
+
+
+Feature Extraction
+
+dimention reduction: Convert a string MANY numbers into a string of as few as possible while still holding information.
+comparable units: The first number describing one element needs to be the same dimention that it is in every other element.
+
+So I first need to isolate the actual sounds within each file. -> amplitude envlopes.  This was harder than I expected.  I found an out-of-the box method, but had trouble getting it to give me suitable results.  I ended up using a different pre-made method that was not designed for exactly this, but that I was able to optimize to work for my purpose.
+
+
+New tool -> Fourier transform
+I was pleased with how easy it was to implement this concept.
+But this information alone is not enough to capture the essence of a dog bark.
+However, it may be enough to distinguish a dog bark from other similarly processed sounds.
+
+
+WHY was the fourier transform data not enough?  I suspect it was too crude to pick up some aspect.  The frequencies that it gave me may yet help me find that aspect so I can extract it.  I suspect it has somethign to do with the scale of the patterns that found or easily missed by this method, what I might describe as the sound texture (but that is a different technical term) (maybe timbre is the term for what I mean?).
+
+
+The shape of the sound.  At a crude level, what is the general shape of the ampliduce envelope.  This is somethign I sould be able to summarize in a string of ~100 numbers.  
+I am currently exploring smoothing (rolling average using loess) as away to do this, and degrees of reducing that data local maxes. 
+In both bases I need to put do data interpolation to represent the shape with the desired number of values; predict(), approx(), spline().  
+In both cases, I will want to explore ways to reduce long continuous regions of the same level since that aspect fo the sound is probably very variable across sounds of the same type (ie, if you play an A on the clarinet, you could hold the note for .5 sec or 10 sec but both sould be treated as 'clarinet').
+
+Normalization
+
+Frequencies will probably need to be normalized to a range that so its only really showing the relative frequencies.
+Amplitude should be normalized for each sound clip. (keep using absolute values, and normalize to 0-1)
+Consider using a log scale when normalizing amplitude (I don't remember where I read that volume is heard on a log scale)
+If all clips are summarized across 100 values, then they have already been normalized for time/duration.
+
+Whatever normalization factors are used can be stored a few numbers.  Maybe some sounds are just typically louder, and that will help distinguish them? or typically have frequencies of a certain range ? Or the percentage of time that was removed for being constant ?  There are only a handful of things to normalize for, experiment with each thing as a feature in the model when you get to feature evaluation.
+
+
+Feature Reduction
+
+So... 100 numbers for the shape of the amplitude envleope, maybe 10,000 for the spectrum (some 1000 frequencies x 100 time slots), and perhaps another 100 to describe the shape of some fine-level texture.  This set of 10,200 measurements for each sample is still too many, but it is a grand improvement over the 44,100 that describes each second of data in files that are .5 oto 25 seconds long.  Its a smaller number and much ore comparable between samples.
+
+PCA can probably reduce this considerably.  I assume adjascent frequencies are very tightly related in the fourier trasnform data, and I know adjascent numbers for the shape will correlated.  PCA lets us reduce these correlations out of our data volume.  To do this, we need more samples than measurements, so we need to reduce the numbers down to below the ~9,000 samples.  We will ultimately have more samples than that because so many have multiple internal sound clips.  And for this step, we could even borrow from the test data.  We could round more frequencies together so we only have 500 instead of 1000; so we only really need to get above 700 samples.
+
+
+Hierarchical Clustering
+
+With the PCA-reduced number of features (or with the 10,200 features if PCA doesn't work out)
+We next do hierchical clustering of our sound clips.
+Then find clusters (searchign all levels of the tree) that are enriched for certain labels.  Evaluate clusters by:
+(num unique files in this cluster for label X) / (num uniqe sound files in this cluster for not-label-X), for all 41 labels.
+and by (num unique files in this cluster for label X) / (total num unique files for label X)
+
+Use the centroid distance metric for clustering. Try other methods to see if they work better, but the centroid is the easiest way to store the results.
+
+----> opportunity for insights: what categories are near each other in the hierarchy?
+
+
+Feature Evaluation
+
+Probably best to do PCA and clustering using JUST the broad shape values, JUST the frequency spectrum over time, JUST the fine texture, to see how well each of those group the categories.  We may find that one of those is sufficient, we may find that one is totally useless.
+
+
+Categorize the Test set
+
+If you do you PCA, save the loadings.  You'll need these to transform the test data.
+
+You'll need to save enough data from the clustering to be able to assign new samples to the original clusters--thus the preference for the centroid distance metric.
+
+
+
+
+
+
