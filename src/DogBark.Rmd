@@ -16,6 +16,7 @@ knitr::knit_hooks$set(inline = function(x) {
 })
 library("pracma") # for findpeaks
 library("seewave") # for timer
+library("audio")
 ```
 
 # Introduction
@@ -66,7 +67,6 @@ barkSoundClips = csv$filePath[csv$label=="Bark"]
 # Example dog bark
 
 ```{r}
-library(audio)
 b1 = load.wave(barkSoundClips[1])
 sample.rate = attr(b1, "rate")
 str(b1)
@@ -154,6 +154,9 @@ useFindPeaks = function(vals, sample.rate=44100,
 										 threshold = threshold, 
 										 minpeakdistance = sample.rate * .1)
 	allEnv = data.frame(allEnv)
+	if (nrow(allEnv) == 0){
+		allEnv = data.frame(matrix(ncol=4, nrow=0))
+	}
 	names(allEnv) = c("height", "peak", "start", "end")
 	allEnv$peakTime = getTimes(numB1)[allEnv$peak]
 	return(allEnv)
@@ -244,11 +247,15 @@ getPeaksEdges <- function(vals, peaks, threshold, minNumBelow=20){
 	# Combine these to get values that are pause areas before the peak.
 	# For each column (peak) keep the true value with highest posible index, that is the peak start.
 	isBefore = bt & bp
-	startInd = apply(isBefore, 2, function(x){max(which(x))})
+	startInd = apply(isBefore, 2, function(x){max(c(-1, which(x)))})
+	startAtPeak = startInd == -1
+	startInd[startAtPeak] = peaks[startAtPeak]
 	
 	# Use the mirror image of the process above to get the end for each peak.
 	isAfter = bt & !bp
-	endInd = apply(isAfter, 2, function(x){min(which(x))})
+	endInd = apply(isAfter, 2, function(x){min(c(nrow+1, which(x)))})
+	endAtPeak = endInd > nrow
+	endInd[endAtPeak] = peaks[endAtPeak]
 
 	return(data.frame(peak=peaks, startInd=startInd, endInd=endInd))
 }
@@ -297,9 +304,14 @@ plot(getTimes(arf), arf,
 # Amplitude envelope shape
 
 ```{r}
-Clips = as.list(1:(nrow(csv)*10)) # I estimate an average of 10 clips per sound file
+
+```
+
+
+```{r}
+Clips = as.list(1:(nrow(csv)*100)) # I estimate an average of 10 clips per sound file
 #fileDF = data.frame(file=character(), numberAmpEnvelopes=integer())
-clipData = as.list(csv$fname)
+clipData = as.list(as.character(csv$fname))
 names(clipData) = csv$fname
 #clipDF = data.frame(file=character(),clipID=character(),lengthInt=numeric(), lengthSec=numeric())
 nth = 0
@@ -308,7 +320,7 @@ for (i in 1:nrow(csv)){
 		# break up the sound file into clips
 		rawSound = load.wave(csv[i,"filePath"])
 		vals = abs(as.numeric(rawSound))
-		ampEnv=0
+		#ampEnv=0
 		maxAmp1 = max(vals)
 		#minpeakheight = 0.1 * maxAmp   # use for plotting later
 		threshold1 = 0.01 * maxAmp1 
@@ -316,8 +328,14 @@ for (i in 1:nrow(csv)){
 		clipEnds = getPeaksEdges(vals, peaks=ampEnv$peak, threshold=threshold1)
 		ampEnv$start = clipEnds$startInd
 		ampEnv$end = clipEnds$endInd
-		range1 = paste(ampEnv$start, allEnv$endInd)
+		
+		# remove duplicates
+		range1 = paste(ampEnv$start, ampEnv$end)
 		ampEnv = ampEnv[!duplicated(range1),]
+		
+		# remove peaks of length 1
+		# (this happens if the peak is all below the threshold)
+		ampEnv = ampEnv[ampEnv$end - ampEnv$start > 1, ]
 		
 		# add clip id
 		ampEnv$clipID = paste0(csv[i,"fname"], "-", 1:nrow(ampEnv))
